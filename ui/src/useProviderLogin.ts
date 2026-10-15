@@ -24,7 +24,7 @@ export const useProviderLogin = (api: UiApi, botId: string, provider: Bot["provi
   }, [])
   const act = useCallback(
     async (
-      action: "start" | "cancel" | "use-host" | "paste" | "input",
+      action: "start" | "cancel" | "use-host" | "paste" | "input" | "code",
       value?: string,
       input?: "up" | "down" | "enter",
     ) => {
@@ -84,7 +84,7 @@ export const useProviderLogin = (api: UiApi, botId: string, provider: Bot["provi
     }
   }, [api, botId, provider, enabled, act])
   useEffect(() => {
-    if (!matches || !enabled || flow?.state !== "waiting" || !flow.verificationUrl) return
+    if (!matches || !enabled || provider === "claude" || flow?.state !== "waiting" || !flow.verificationUrl) return
     const pages = openedPages.get(api) ?? new Set<string>()
     openedPages.set(api, pages)
     const key = `${botId}:${provider}`

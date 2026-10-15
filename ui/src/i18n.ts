@@ -31,6 +31,10 @@ export const ptBR = {
     "Não foi possível concluir o login. Tente novamente ou cole o token manualmente.",
   "Entre no provedor para enviar mensagens.": "Entre no provedor para enviar mensagens.",
   "Código de login": "Código de login",
+  "Código exibido no navegador": "Código exibido no navegador",
+  "Enviar código": "Enviar código",
+  "Código inválido. Copie o código completo exibido no navegador e tente novamente.":
+    "Código inválido. Copie o código completo exibido no navegador e tente novamente.",
   "Abrir página de login": "Abrir página de login",
   "Não foi possível abrir o navegador. Use o link de login.":
     "Não foi possível abrir o navegador. Use o link de login.",
@@ -660,6 +664,10 @@ export const ptBR = {
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Código exibido no navegador": "Code shown in the browser",
+  "Enviar código": "Send code",
+  "Código inválido. Copie o código completo exibido no navegador e tente novamente.":
+    "Invalid code. Copy the full code shown in the browser and try again.",
   "Cancelado por você": "Canceled by you",
   "No navegador, digite o caminho. No app Tauri, use o seletor nativo.":
     "In the browser, enter the folder path. In the app, use the folder picker.",

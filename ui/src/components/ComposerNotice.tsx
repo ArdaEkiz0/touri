@@ -9,6 +9,7 @@ export const ComposerNotice = ({
   latestReply,
   machine,
   active,
+  loginFlowShown = false,
   api,
   onOpenPermissions,
   onOpenProviderLogin,
@@ -18,6 +19,7 @@ export const ComposerNotice = ({
   latestReply: Message | undefined
   machine: MachineState | undefined
   active: boolean
+  loginFlowShown?: boolean
   api: UiApi
   onOpenPermissions?: (() => void) | undefined
   onOpenProviderLogin?: (() => void) | undefined
@@ -28,7 +30,7 @@ export const ComposerNotice = ({
     latestReply?.status === "failed"
       ? latestReply.parts.find((part) => part.type === "notice" && part.level === "error")
       : undefined
-  const authNeeded = notice?.type === "notice" && notice.text.startsWith("cli_auth:")
+  const authNeeded = !loginFlowShown && notice?.type === "notice" && notice.text.startsWith("cli_auth:")
   const serviceDown = notice?.type === "notice" && /^machine_service_(?:unavailable|start_failed):/.test(notice.text)
   const machineFailed = bot?.machine === "vm" && machine?.status === "error"
   if (!authNeeded && !serviceDown && !machineFailed) return null

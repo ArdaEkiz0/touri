@@ -1,5 +1,5 @@
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
-import type { ApiRoutes, ProviderLoginFlow } from "@touri/contracts"
+import type { ApiRoutes, Message, ProviderLoginFlow } from "@touri/contracts"
 import { createRef } from "react"
 import { afterEach, expect, it, vi } from "vitest"
 import type { ApiRequest } from "../src/api/client"
@@ -131,10 +131,22 @@ it("composer blocks submission until login succeeds and shows the device challen
       onSend={send}
       onCancel={vi.fn()}
       onOpenProviderLogin={openLogin}
+      notice={{
+        bot,
+        latestReply: {
+          runId: "failed-login-run",
+          status: "failed",
+          parts: [{ type: "notice", level: "error", text: "cli_auth: login ausente" }],
+        } as Message,
+        machine: undefined,
+        onRetry: vi.fn(),
+      }}
     />,
   )
   await act(async () => {})
   expect(screen.getByText("ABCD-EFGH")).toBeVisible()
+  expect(screen.queryByText(/Entre no .+ para continuar/)).toBeNull()
+  expect(screen.queryByRole("button", { name: "Entrar no provedor" })).toBeNull()
   const button = screen.getByRole("button", { name: "Enviar" })
   expect(button).toBeDisabled()
   fireEvent.click(screen.getByRole("button", { name: "Colar token manualmente" }))
@@ -169,6 +181,53 @@ it("opens the device login page once across simultaneous composer and settings v
   )
   unmount()
   open.mockRestore()
+})
+
+it("shows the Claude code prompt and error without opening a second browser page", async () => {
+  const f = fixture("waiting")
+  const open = vi.spyOn(window, "open").mockImplementation(() => null)
+  const url = "https://claude.com/cai/oauth/authorize?client_id=synthetic&state=synthetic-state"
+  const codeError = "Código inválido. Copie o código completo exibido no navegador e tente novamente."
+  f.setFlow({ provider: "claude", state: "waiting", needsCode: true, verificationUrl: url, codeError })
+  const configured = vi.fn()
+  render(<ProviderLogin api={f.api} botId="bot" provider="claude" onConfigured={configured} />)
+  const input = await screen.findByLabelText("Código exibido no navegador")
+  expect(input).toHaveAttribute("type", "text")
+  expect(input).toHaveAttribute("aria-invalid", "true")
+  expect(screen.getByRole("alert")).toHaveTextContent(codeError)
+  expect(screen.getByRole("link", { name: "Abrir página de login" })).toHaveAttribute("href", url)
+  expect(open).not.toHaveBeenCalled()
+  expect(screen.getByRole("button", { name: "Enviar código" })).toBeDisabled()
+  fireEvent.click(screen.getByRole("link", { name: "Abrir página de login" }))
+  expect(open).toHaveBeenCalledExactlyOnceWith(url, "_blank", "noopener,noreferrer")
+  fireEvent.change(input, { target: { value: "synthetic-browser-code" } })
+  fireEvent.click(screen.getByRole("button", { name: "Enviar código" }))
+  await waitFor(() => expect(configured).toHaveBeenCalledOnce())
+  expect(f.request).toHaveBeenCalledWith(
+    "POST /bots/:id/provider-login/flow",
+    { provider: "claude", action: "code", value: "synthetic-browser-code" },
+    { id: "bot" },
+  )
+  expect(document.body.textContent).not.toContain("synthetic-browser-code")
+  open.mockRestore()
+})
+
+it("keeps a Claude code for retry when its submission fails", async () => {
+  const f = fixture("waiting")
+  f.setFlow({ provider: "claude", state: "waiting", needsCode: true })
+  const original = f.api.request
+  f.api.request = (async (route, input, path) => {
+    if (route === "POST /bots/:id/provider-login/flow" && (input as { action?: string }).action === "code")
+      throw new Error("synthetic failure")
+    return original(route, input, path)
+  }) as ApiRequest
+  render(<ProviderLogin api={f.api} botId="bot" provider="claude" onConfigured={vi.fn()} />)
+  const input = await screen.findByLabelText("Código exibido no navegador")
+  fireEvent.change(input, { target: { value: "synthetic-browser-code" } })
+  fireEvent.keyDown(input, { key: "Enter" })
+  await screen.findByRole("alert")
+  expect(input).toHaveValue("synthetic-browser-code")
+  expect(screen.getByRole("button", { name: "Enviar código" })).toBeEnabled()
 })
 
 it("creation starts the selected provider before creating a bot and cancels on close", async () => {

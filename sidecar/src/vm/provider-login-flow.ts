@@ -62,6 +62,11 @@ type Session = {
   host?: boolean
   timer?: ReturnType<typeof setTimeout>
   directory?: string
+  pastePrompt?: number
+  codeReady?: boolean
+  retryCode?: boolean
+  codeBusy?: boolean
+  onCodePrompt?: () => void
 }
 export type LoginInvocation = {
   provider: Bot["provider"]
@@ -75,6 +80,23 @@ const key = (target: Target) => `${target.id}:${target.provider}`
 const record = (value: unknown): Record<string, unknown> | null =>
   value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null
 const nonempty = (value: unknown) => typeof value === "string" && value.trim().length > 0
+const claudeVerificationUrl = (output: string) => {
+  let latest: string | undefined
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: OSC 8 uses ESC and BEL delimiters.
+  for (const match of output.matchAll(/\u001b\]8;[^;\u0007\u001b]*;([^\u0007\u001b]*)(?:\u0007|\u001b\\)/g)) {
+    try {
+      const url = new URL(match[1] ?? "")
+      if (
+        url.origin === "https://claude.com" &&
+        url.pathname === "/cai/oauth/authorize" &&
+        !url.username &&
+        !url.password
+      )
+        latest = url.href
+    } catch {}
+  }
+  return latest
+}
 const claudeToken = (output: string) => {
   const text = stripVTControlCharacters(output).replace(/\r/g, "")
   const lines = text.split("\n")
@@ -197,6 +219,7 @@ export const createProviderLoginFlow = ({
   }
   const clean = (session: Session) => {
     clearTimeout(session.timer)
+    session.onCodePrompt?.()
     if (session.directory) rmSync(session.directory, { recursive: true, force: true })
     delete session.directory
     delete session.child
@@ -290,11 +313,15 @@ export const createProviderLoginFlow = ({
           if (session.view.state !== "waiting") return
           env.PATH = resolved.env.PATH ?? ""
           const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+          if (process.platform === "darwin") env.TOURI_LOGIN_ARGV = [resolved.path, ...args].join("\x1f")
           spawned = kernel.spawnTree({
-            cmd: "/usr/bin/script",
+            cmd: process.platform === "darwin" ? "/usr/bin/expect" : "/usr/bin/script",
             args:
               process.platform === "darwin"
-                ? ["-q", "/dev/null", resolved.path, ...args]
+                ? [
+                    "-c",
+                    'set timeout -1; log_user 1; set stty_init "columns 240 rows 40"; spawn -noecho {*}[split $env(TOURI_LOGIN_ARGV) "\\x1f"]; interact',
+                  ]
                 : ["-qefc", [resolved.path, ...args].map(quote).join(" "), "/dev/null"],
             cwd: directory,
             env,
@@ -311,7 +338,29 @@ export const createProviderLoginFlow = ({
               if (done) break
               output += decoder.decode(chunk, { stream: true })
               if (output.length > 128_000) throw new Error("output")
+              if (session.view.state !== "waiting") continue
+              // OSC 8 contains the complete URL even when Ink wraps its visible text.
+              if (command === "claude") {
+                const url = claudeVerificationUrl(output)
+                if (url) session.view.verificationUrl = url
+              }
               const text = stripVTControlCharacters(output).replace(/\r/g, "")
+              if (command === "claude") {
+                const prompt = text.lastIndexOf("Paste code here")
+                if (prompt > (session.pastePrompt ?? -1)) {
+                  session.pastePrompt = prompt
+                  session.codeReady = true
+                  session.retryCode = false
+                  session.view.needsCode = true
+                  delete session.view.codeError
+                  session.onCodePrompt?.()
+                }
+                if (text.lastIndexOf("OAuth error: Invalid code") > prompt) {
+                  session.view.codeError =
+                    "Código inválido. Copie o código completo exibido no navegador e tente novamente."
+                  if (text.lastIndexOf("Press Enter to retry") > prompt) session.retryCode = true
+                }
+              }
               if (command === "opencode") {
                 const prompts = [...text.matchAll(/Select (provider|login method)/gi)]
                 const prompt = prompts.at(-1)
@@ -336,6 +385,7 @@ export const createProviderLoginFlow = ({
                 session.view.deviceCode = code
               }
               for (const match of text.matchAll(/https:\/\/[^\s<>"']+/g)) {
+                if (command === "claude") break
                 try {
                   const url = new URL(match[0])
                   if (
@@ -388,6 +438,43 @@ export const createProviderLoginFlow = ({
     input: { action: string; value?: string; draftId?: string; input?: string },
   ): Promise<ProviderLoginFlow> => {
     if (input.action === "cancel") return cancel(target)
+    if (input.action === "code") {
+      const value = typeof input.value === "string" ? input.value.trim() : ""
+      if (!value || value.length > 2000 || /[\r\n\u2028\u2029]/.test(input.value ?? ""))
+        throw new Error("Código inválido.")
+      const session = sessions.get(key(target))
+      if (
+        target.provider !== "claude" ||
+        session?.view.state !== "waiting" ||
+        !session.child ||
+        !session.view.needsCode ||
+        session.codeBusy ||
+        (!session.codeReady && !session.retryCode)
+      )
+        throw new Error("Envio de código indisponível.")
+      redact(value)
+      const writer = session.child.stdin.getWriter()
+      session.codeBusy = true
+      try {
+        if (session.retryCode) {
+          const prompt = new Promise<void>((resolve) => {
+            session.onCodePrompt = resolve
+          })
+          await writer.write(new TextEncoder().encode("\r"))
+          await withDeadline({ operation: () => prompt, timeoutMs: Math.min(timeoutMs, 5000) })
+        }
+        if (session.view.state !== "waiting" || !session.child || !session.codeReady)
+          throw new Error("Envio de código indisponível.")
+        session.codeReady = false
+        delete session.view.codeError
+        await writer.write(new TextEncoder().encode(`${value}\r`))
+      } finally {
+        writer.releaseLock()
+        session.codeBusy = false
+        delete session.onCodePrompt
+      }
+      return { ...session.view }
+    }
     if (input.action === "input") {
       const session = sessions.get(key(target))
       const bytes =

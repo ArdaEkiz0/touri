@@ -198,7 +198,7 @@ describe("r3 P2 chat and navigation", () => {
 })
 
 describe("r3 login and MCP settings", () => {
-  it("P1-3 login recovery opens permissions and disappears after the next successful reply", () => {
+  it("P1-3 login recovery opens permissions and disappears after the next successful reply", async () => {
     const props = chatProps()
     const onOpenPermissions = vi.fn()
     const failed = message("failed-login", null, "", {
@@ -206,7 +206,7 @@ describe("r3 login and MCP settings", () => {
       parts: [{ type: "notice", code: "run_failed", level: "error", text: "cli_auth: login ausente" }],
     })
     const view = render(<ChatPanel {...props} messages={[failed]} onOpenPermissions={onOpenPermissions} />)
-    fireEvent.click(screen.getByRole("button", { name: "Entrar no Codex nesta máquina" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Entrar no Codex nesta máquina" }))
     expect(onOpenPermissions).toHaveBeenCalledOnce()
     view.rerender(
       <ChatPanel
@@ -233,7 +233,7 @@ describe("r3 login and MCP settings", () => {
         onOpenProviderLogin={onOpenProviderLogin}
       />,
     )
-    fireEvent.click(screen.getByRole("button", { name: "Entrar no Codex nesta máquina" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Entrar no Codex nesta máquina" }))
     expect(onOpenProviderLogin).toHaveBeenCalledOnce()
     expect(onOpenPermissions).not.toHaveBeenCalled()
   })

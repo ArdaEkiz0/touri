@@ -1,5 +1,5 @@
 import type { Bot, Id, Run } from "@touri/contracts"
-import { type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
+import { type ComponentProps, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import { composerKeyAction } from "../composerKeys"
 import { userFacingError } from "../errors"
@@ -10,6 +10,7 @@ import { useComposerMachineIntent } from "../machineIntents"
 import { useProviderLogin } from "../useProviderLogin"
 import { useMascotComposer } from "./AvatarRuntime"
 import { BotAvatar } from "./BotAvatar"
+import { ComposerNotice } from "./ComposerNotice"
 import { ProviderLoginFlow } from "./ProviderLoginFlow"
 import { useReveal } from "./Reveal"
 import "./Composer.css"
@@ -32,6 +33,7 @@ type ComposerProps = {
   onOpenModel?: (() => void) | undefined
   onOpenPermissions?: (() => void) | undefined
   onOpenProviderLogin?: (() => void) | undefined
+  notice?: Omit<ComponentProps<typeof ComposerNotice>, "api" | "active" | "loginFlowShown">
 }
 
 /** Focusing a draft can invite the mascot to listen; only the runtime can signal work. */
@@ -87,6 +89,7 @@ export const Composer = ({
   onOpenModel,
   onOpenPermissions,
   onOpenProviderLogin,
+  notice,
 }: ComposerProps) => {
   const login = useProviderLogin(api, bot?.id ?? "", bot?.provider ?? "codex", !!bot && bot.machine !== "cloud")
   const { account: cloudAccount } = useCloudAccount(api, bot?.machine === "cloud")
@@ -304,7 +307,7 @@ export const Composer = ({
   const model = groupName ? `${mentionBots.length} membros` : bot?.model || "Padrão do provedor"
   const hasContent = Boolean(draft.trim() || files.length)
   const showStop = Boolean(activeRun && !hasContent && !sending)
-  return (
+  const composer = (
     <form
       ref={island}
       className="composer composer-island"
@@ -563,5 +566,11 @@ export const Composer = ({
         </div>
       )}
     </form>
+  )
+  return (
+    <>
+      {notice && <ComposerNotice {...notice} api={api} active={Boolean(activeRun)} loginFlowShown={login.blocked} />}
+      {composer}
+    </>
   )
 }

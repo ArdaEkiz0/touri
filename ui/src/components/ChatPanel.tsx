@@ -15,7 +15,6 @@ import { withApprovalAnswers } from "./activityStatus"
 import { BotAvatar } from "./BotAvatar"
 import { ChatDisclosure } from "./ChatDisclosure"
 import { Composer } from "./Composer"
-import { ComposerNotice } from "./ComposerNotice"
 import { ConversationStart } from "./ConversationStart"
 import { EvidenceContext } from "./EvidenceGallery"
 import { FailureActionContext } from "./FailureActionContext"
@@ -907,18 +906,16 @@ export const ChatPanel = ({
         />
       </InlinePreviewContext.Provider>
       {/* r8 composer: notices and the input island stay isolated from transcript activity. */}
-      <ComposerNotice
-        bot={bot}
-        latestReply={latestReply}
-        machine={machine}
-        active={Boolean(activeRun)}
-        api={api}
-        onOpenPermissions={onOpenPermissions}
-        onOpenProviderLogin={group ? undefined : onOpenProviderLogin}
-        onRetry={onRetry}
-      />
       <Composer
         key={`composer-${thread.id}`}
+        notice={{
+          bot,
+          latestReply,
+          machine,
+          onOpenPermissions,
+          onOpenProviderLogin: group ? undefined : onOpenProviderLogin,
+          onRetry,
+        }}
         bot={group ? null : bot}
         groupName={group?.name}
         mentionBots={groupMembers}

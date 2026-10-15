@@ -3,7 +3,8 @@ import { afterEach, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import type { Bot, Kernel, UiEvent } from "@touri/contracts"
+import type { Bot, Kernel, ProviderLoginFlow, UiEvent } from "@touri/contracts"
+import { createRedactor } from "../../src/kernel/redact"
 import { spawnTree } from "../../src/kernel/spawn"
 import { prepareLocalProviderLogin } from "../../src/vm/local-provider-login"
 import { providerLoginAccount, storedProviderLoginSource } from "../../src/vm/provider-login"
@@ -14,18 +15,40 @@ afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup()
 })
 const token = "sk-ant-oat01-synthetic-oauth-test-value"
+const browserCode = "synthetic-browser-code"
+const authorizeUrl =
+  "https://claude.com/cai/oauth/authorize?client_id=touri-test&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode&state=synthetic-state&code_challenge=synthetic-challenge"
 const codex = JSON.stringify({ tokens: { access_token: "synthetic-access", refresh_token: "synthetic-refresh" } })
 const openCode = JSON.stringify({
   openai: { type: "oauth", access: "synthetic-access", refresh: "synthetic-refresh", expires: Date.now() + 60_000 },
 })
-const fixture = (provider: Bot["provider"] = "codex", mode = "success", timeoutMs = 3000) => {
+const fixture = (
+  provider: Bot["provider"] = "codex",
+  mode = "success",
+  timeoutMs = 3000,
+  options: { bridge?: boolean; url?: string } = {},
+) => {
   const root = mkdtempSync(join(tmpdir(), "touri-flow-test-"))
   const db = new Database(":memory:")
   db.run("CREATE TABLE settings (key TEXT PRIMARY KEY, value_json TEXT, updated_at INTEGER)")
   const vault = new Map<string, string>()
   const redactions: string[] = []
+  const redactor = createRedactor()
   const invocations: LoginInvocation[] = []
   const kills: string[] = []
+  const children: Array<Extract<ReturnType<Kernel["spawnTree"]>, { success: true }>> = []
+  const trackedSpawn: Kernel["spawnTree"] = (input) => {
+    const child = spawnTree(input)
+    if (!child.success) return child
+    children.push(child)
+    return {
+      ...child,
+      kill: (signal) => {
+        kills.push(signal)
+        child.kill(signal)
+      },
+    }
+  }
   let listener: (event: UiEvent) => void = () => {}
   const bot = { id: "login-bot", provider, machine: "local" } as Bot
   const script = join(root, "fake-cli.ts")
@@ -34,6 +57,7 @@ const fixture = (provider: Bot["provider"] = "codex", mode = "success", timeoutM
     `
     import { writeFileSync } from "node:fs"
     import { join } from "node:path"
+    import { createInterface } from "node:readline"
     const [provider, mode] = process.argv.slice(2)
     console.log("Open https://auth.openai.com/codex/device and enter code: ABCD-EFGH")
     if (mode === "wait") await Bun.sleep(30000)
@@ -44,18 +68,69 @@ const fixture = (provider: Bot["provider"] = "codex", mode = "success", timeoutM
       console.log("Select login method\\n│ ● ChatGPT Pro")
       await new Promise((resolve) => process.stdin.once("data", resolve))
     }
+    if (provider === "claude" && mode.startsWith("code-")) {
+      const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]()
+      const url = ${JSON.stringify(options.url ?? authorizeUrl)}
+      const end = mode === "code-st" ? "\\x1b\\\\" : "\\x07"
+      console.log("Opening browser to sign in…")
+      console.log("Browser didn't open? Use the url below to sign in (c to copy)")
+      const link = "\\x1b]8;id=login;" + url + end + url.replace("?", "?\\n") + "\\x1b]8;;" + end
+      // Split the OSC sequence across output chunks too.
+      process.stdout.write(link.slice(0, 30))
+      await Bun.sleep(10)
+      console.log(link.slice(30))
+      console.log("\\x1b[32mPaste code here if prompted >\\x1b[0m")
+      let code = (await lines.next()).value
+      console.log(code)
+      if (mode === "code-retry") {
+        if (code !== "synthetic-wrong-code") process.exit(2)
+        console.log("OAuth error: Invalid code. Please make sure the full code was copied")
+        console.log("Press Enter to retry.")
+        if ((await lines.next()).value !== "") process.exit(3)
+        const early = () => process.exit(4)
+        process.stdin.on("data", early)
+        await Bun.sleep(50)
+        process.stdin.off("data", early)
+        console.log("Paste code here if prompted >")
+        code = (await lines.next()).value
+      }
+      if (code !== ${JSON.stringify(browserCode)}) process.exit(5)
+    }
     if (provider === "claude") console.log(mode === "wrapped" ? ${JSON.stringify(token)} + "\\n  synthetic-wrapped-continuation" : ${JSON.stringify(token)})
     else writeFileSync(join(process.env.HOME!, provider === "codex" ? ".codex/auth.json" : ".local/share/opencode/auth.json"), mode === "invalid" ? "{}" : provider === "codex" ? ${JSON.stringify(codex)} : ${JSON.stringify(openCode)})
     process.exit(0)
   `,
   )
+  const bin = join(root, "fake bin")
+  if (options.bridge) {
+    mkdirSync(bin)
+    writeFileSync(
+      join(bin, "claude"),
+      `#!/bin/sh
+[ -t 0 ] && [ -t 1 ] && [ "$1" = setup-token ] || exit 2
+echo $$ > "$HOME/cli.pid"
+printf 'Paste code here if prompted >\\n'
+IFS= read -r code < /dev/tty
+[ "$code" = '${browserCode}' ] || exit 3
+printf '%s\\n' '${token}'
+`,
+      { mode: 0o700 },
+    )
+  }
   const kernel = {
     db,
     paths: { runDir: root },
-    spawnTree,
+    spawnTree: (input: Parameters<Kernel["spawnTree"]>[0]) => {
+      invocations.push({ provider, ...input })
+      return trackedSpawn(input)
+    },
     services: { use: () => ({ getBot: ({ botId }: { botId: string }) => (botId === bot.id ? bot : null) }) },
-    shellEnv: async () => ({ PATH: process.env.PATH ?? "" }),
-    addRedactionValue: (value: string) => redactions.push(value),
+    shellEnv: async () => ({ PATH: options.bridge ? bin : (process.env.PATH ?? "") }),
+    redact: redactor.redact,
+    addRedactionValue: (value: string) => {
+      redactions.push(value)
+      redactor.addRedactionValue(value)
+    },
     subscribe: (callback: Parameters<Kernel["subscribe"]>[0]) => {
       listener = (event) => callback({ event, seq: 1, at: Date.now() })
       return () => {}
@@ -70,35 +145,43 @@ const fixture = (provider: Bot["provider"] = "codex", mode = "success", timeoutM
     kernel,
     hostHome: root,
     timeoutMs,
-    invoke: (input) => {
-      invocations.push(input)
-      const child = spawnTree({ ...input, cmd: process.execPath, args: [script, input.provider, mode] })
-      if (!child.success) return child
-      return {
-        ...child,
-        kill: (signal) => {
-          kills.push(signal)
-          child.kill(signal)
-        },
-      }
-    },
+    ...(options.bridge
+      ? {}
+      : {
+          invoke: (input: LoginInvocation) => {
+            invocations.push(input)
+            return trackedSpawn({ ...input, cmd: process.execPath, args: [script, input.provider, mode] })
+          },
+        }),
   })
   cleanups.push(() => {
     flow.dispose()
     db.close()
     rmSync(root, { recursive: true, force: true })
   })
-  return { flow, kernel, bot, root, vault, redactions, invocations, kills, emit: (event: UiEvent) => listener(event) }
+  return {
+    flow,
+    kernel,
+    bot,
+    root,
+    vault,
+    redactions,
+    invocations,
+    kills,
+    children,
+    emit: (event: UiEvent) => listener(event),
+  }
 }
-const waitState = async (f: ReturnType<typeof fixture>, state: string) => {
+const waitView = async (f: ReturnType<typeof fixture>, predicate: (view: ProviderLoginFlow) => boolean) => {
   for (let attempt = 0; attempt < 150; attempt++) {
     const view = await f.flow.status(f.bot)
-    if (view.state === state) return view
-    if (view.state === "error" && state !== "error") throw new Error(view.message)
+    if (predicate(view)) return view
+    if (view.state === "error") throw new Error(view.message)
     await Bun.sleep(10)
   }
-  throw new Error(`Login did not reach ${state}`)
+  throw new Error("Login did not reach the expected view")
 }
+const waitState = (f: ReturnType<typeof fixture>, state: string) => waitView(f, (view) => view.state === state)
 
 for (const provider of ["claude", "codex", "opencode"] as const)
   test(`${provider}: official login invocation captures credentials privately into this bot's vault`, async () => {
@@ -291,6 +374,112 @@ test("Claude token capture joins a token wrapped by the official CLI terminal re
   await f.flow.action(f.bot, { action: "start" })
   await waitState(f, "ready")
   expect(f.vault.get(providerLoginAccount(f.bot.id, "claude"))).toBe(`${token}synthetic-wrapped-continuation`)
+})
+
+for (const mode of ["code-bel", "code-st"])
+  test(`Claude detects the paste prompt and the full OSC 8 URL (${mode})`, async () => {
+    const f = fixture("claude", mode)
+    await f.flow.action(f.bot, { action: "start" })
+    expect(await waitView(f, (view) => !!view.needsCode)).toEqual({
+      provider: "claude",
+      state: "waiting",
+      needsCode: true,
+      verificationUrl: authorizeUrl,
+    })
+    expect(f.vault.size).toBe(0)
+    const response = await f.flow.action(f.bot, { action: "code", value: `  ${browserCode}  ` })
+    expect(JSON.stringify(response)).not.toContain(browserCode)
+    await waitState(f, "ready")
+    expect(f.vault.get(providerLoginAccount(f.bot.id, "claude"))).toBe(token)
+    expect(f.redactions).toContain(browserCode)
+    expect(f.kernel.redact(`echoed ${browserCode}`)).toBe("echoed [REDACTED]")
+    expect(JSON.stringify(await f.flow.status(f.bot))).not.toContain(browserCode)
+  })
+
+for (const url of [
+  "http://claude.com/cai/oauth/authorize?state=test",
+  "https://claude.com.example/cai/oauth/authorize",
+  "https://claude.com/other",
+  "https://claude.ai/cai/oauth/authorize",
+  "https://user:password@claude.com/cai/oauth/authorize",
+])
+  test(`Claude rejects an unexpected authorize URL: ${url}`, async () => {
+    const f = fixture("claude", "code-bel", 3000, { url })
+    await f.flow.action(f.bot, { action: "start" })
+    const view = await waitView(f, (view) => !!view.needsCode)
+    expect(view.verificationUrl).toBeUndefined()
+  })
+
+test("Claude rejects invalid codes before writing to stdin", async () => {
+  const f = fixture("claude", "code-bel")
+  await expect(f.flow.action(f.bot, { action: "code", value: browserCode })).rejects.toThrow()
+  await f.flow.action(f.bot, { action: "start" })
+  await waitView(f, (view) => !!view.needsCode)
+  await expect(f.flow.action(f.bot, { action: "code" })).rejects.toThrow()
+  for (const value of ["", "  ", "x".repeat(2001), "one\ntwo", "one\rtwo", `${browserCode}\n`])
+    await expect(f.flow.action(f.bot, { action: "code", value })).rejects.toThrow()
+  expect(f.redactions).not.toContain(browserCode)
+  await f.flow.action(f.bot, { action: "code", value: browserCode })
+  await waitState(f, "ready")
+  const other = fixture("codex", "wait")
+  await other.flow.action(other.bot, { action: "start" })
+  await expect(other.flow.action(other.bot, { action: "code", value: browserCode })).rejects.toThrow()
+})
+
+test("Claude reports an invalid code and waits for a fresh paste prompt before retrying", async () => {
+  const f = fixture("claude", "code-retry")
+  await f.flow.action(f.bot, { action: "start" })
+  await waitView(f, (view) => !!view.needsCode)
+  await f.flow.action(f.bot, { action: "code", value: "synthetic-wrong-code" })
+  const failed = await waitView(f, (view) => !!view.codeError)
+  expect(failed.codeError).toContain("Código inválido")
+  expect(failed.needsCode).toBe(true)
+  expect(JSON.stringify(failed)).not.toContain("synthetic-wrong-code")
+  expect(f.redactions).toContain("synthetic-wrong-code")
+  expect(f.kernel.redact("echoed synthetic-wrong-code")).toBe("echoed [REDACTED]")
+  expect(f.vault.size).toBe(0)
+  const retried = await f.flow.action(f.bot, { action: "code", value: browserCode })
+  expect(retried.codeError).toBeUndefined()
+  expect(JSON.stringify(retried)).not.toContain(browserCode)
+  await waitState(f, "ready")
+  expect(f.vault.get(providerLoginAccount(f.bot.id, "claude"))).toBe(token)
+  expect(f.redactions).toContain(browserCode)
+})
+
+test.skipIf(process.platform !== "darwin")(
+  "macOS expect bridge delivers code to the CLI TTY and captures its token",
+  async () => {
+    const f = fixture("claude", "success", 3000, { bridge: true })
+    await f.flow.action(f.bot, { action: "start" })
+    await waitView(f, (view) => !!view.needsCode)
+    expect(f.invocations[0]?.cmd).toBe("/usr/bin/expect")
+    await f.flow.action(f.bot, { action: "code", value: browserCode })
+    await waitState(f, "ready")
+    expect(f.vault.get(providerLoginAccount(f.bot.id, "claude"))).toBe(token)
+  },
+)
+
+test.skipIf(process.platform !== "darwin")("cancelling the expect bridge kills both expect and its CLI", async () => {
+  const f = fixture("claude", "success", 3000, { bridge: true })
+  await f.flow.action(f.bot, { action: "start" })
+  await waitView(f, (view) => !!view.needsCode)
+  const invocation = f.invocations[0]
+  if (!invocation) throw new Error("Missing expect invocation")
+  const pid = Number(readFileSync(join(invocation.cwd, "cli.pid"), "utf8").trim())
+  await f.flow.action(f.bot, { action: "cancel" })
+  await f.children[0]?.exited
+  // The CLI is in a separate process group and can be reaped after expect exits.
+  for (let attempt = 0; attempt < 150; attempt++) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      break
+    }
+    await Bun.sleep(10)
+  }
+  expect(() => process.kill(pid, 0)).toThrow()
+  expect(f.vault.size).toBe(0)
+  expect(f.kills).toContain("SIGKILL")
 })
 
 for (const event of ["deleted", "provider-changed", "cloud"])
