@@ -638,6 +638,15 @@ export type ProviderAdapter = {
 export type CreateBotInput = { cloudApiKey?: string } & Pick<Bot, 'name' | 'provider'> &
   Partial<Pick<Bot, 'title' | 'roleLine' | 'description' | 'color' | 'avatarShape' | 'avatarSeed' | 'instructions' | 'model' | 'reasoningEffort' | 'access' | 'approvals' | 'projectId' | 'cwd' | 'browserEnabled' | 'computerUse' | 'machine' | 'machineIdleMinutes' | 'vmProviderLogin' | 'hostComputerUse'>>
 
+export type ProviderLoginFlow = {
+  provider: Provider
+  state: 'idle' | 'host-available' | 'waiting' | 'ready' | 'cancelled' | 'error'
+  deviceCode?: string
+  verificationUrl?: string
+  prompt?: { kind: 'provider' | 'method'; choice: string }
+  message?: string
+}
+
 export type SendMessageInput = {
   clientNonce?: string
   deadline?: EpochMs
@@ -693,6 +702,8 @@ export type ApiRoutes = {
   }
   'PUT /bots/:id/provider-login': { req: { value?: string; source?: 'vault' | 'host-file' }; res: {} }
   'DELETE /bots/:id/provider-login': { req: {}; res: {} }
+  'GET /bots/:id/provider-login/flow': { req: { provider: Provider }; res: ProviderLoginFlow }
+  'POST /bots/:id/provider-login/flow': { req: { provider: Provider; action: 'start' | 'cancel' | 'use-host' | 'paste' | 'adopt' | 'input'; value?: string; draftId?: string; input?: 'up' | 'down' | 'enter' }; res: ProviderLoginFlow }
   'GET /machines': { req: {}; res: { capability: MachineCapability; machines: Array<MachineState> } }
   'POST /machines/service/start': { req: { botId?: Id }; res: { machine: MachineState | null } }
   'POST /bots/:id/machine/stop': { req: {}; res: { machine: MachineState } }

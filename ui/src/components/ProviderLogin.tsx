@@ -1,26 +1,39 @@
 import type { ApiRoutes, Bot } from "@touri/contracts"
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import { SETTINGS } from "../features/commandPalette/settingsRegistry"
 import { t } from "../i18n"
+import { useProviderLogin } from "../useProviderLogin"
+import { ProviderLoginFlow } from "./ProviderLoginFlow"
 
 export const ProviderLogin = ({
   api,
   botId,
   provider,
   onConfigured,
+  onReadyChange,
 }: {
   api: UiApi
   botId: string
   provider: Bot["provider"]
   onConfigured: () => void
+  onReadyChange?: (ready: boolean) => void
 }) => {
+  const login = useProviderLogin(api, botId, provider)
+  const callbacks = useRef({ onConfigured, onReadyChange })
+  callbacks.current = { onConfigured, onReadyChange }
+  const ready = login.flow?.state === "ready"
+  useEffect(() => {
+    callbacks.current.onReadyChange?.(ready)
+    if (ready) callbacks.current.onConfigured()
+  }, [ready])
   const [status, setStatus] = useState<ApiRoutes["GET /bots/:id/provider-login"]["res"] | null>(null)
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const refresh = useCallback(async () => {
+    if (botId.startsWith("draft-")) return
     try {
       setStatus(await api.request("GET /bots/:id/provider-login", {}, { id: botId }))
     } catch {
@@ -33,17 +46,17 @@ export const ProviderLogin = ({
     setError(null)
     setOpen(false)
     setValue("")
-    void refresh()
-  }, [refresh, provider])
+    if (ready) void refresh()
+  }, [refresh, provider, ready])
   const save = async () => {
-    if (busy || !value.trim() || status?.provider !== provider) return
+    if (busy || !value.trim()) return
     setBusy(true)
     setError(null)
     try {
-      await api.request("PUT /bots/:id/provider-login", { value }, { id: botId })
+      const result = await login.act("paste", value)
+      if (result?.state !== "ready") return
       setValue("")
       setOpen(false)
-      onConfigured()
       await refresh()
     } catch {
       setError(t("Não foi possível salvar o login no cofre de segredos."))
@@ -57,44 +70,42 @@ export const ProviderLogin = ({
       aria-label={t("Login do provedor nesta máquina")}
       data-setting-id={SETTINGS.providerLogin.id}
     >
-      <label>
-        Fonte do login
-        <select
-          id={SETTINGS.providerLogin.controlId}
-          aria-label="Fonte do login"
-          value={status?.configuredSource ?? "vault"}
-          disabled={busy || (!!status && status.provider !== provider)}
-          onChange={(event) => {
-            const input = {
-              value: "",
-              source: event.target.value === "host-file" ? ("host-file" as const) : ("vault" as const),
-            }
-            setBusy(true)
-            void api
-              .request("PUT /bots/:id/provider-login", input, { id: botId })
-              .then(refresh)
-              .catch(() => setError("Não foi possível selecionar a fonte de login."))
-              .finally(() => setBusy(false))
-          }}
-        >
-          <option value="vault">Cofre de segredos deste bot</option>
-          <option value="host-file">Arquivo de login do host</option>
-        </select>
-      </label>
-      <p role="status">
-        {status && status.provider !== provider
-          ? `Salve o provedor ${provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Claude"} para verificar e configurar seu login.`
-          : (status?.message ?? t("Verificando login…"))}
-      </p>
+      {!botId.startsWith("draft-") && (
+        <label>
+          Fonte do login
+          <select
+            id={SETTINGS.providerLogin.controlId}
+            aria-label="Fonte do login"
+            value={status?.configuredSource ?? "vault"}
+            disabled={busy || !status || status.provider !== provider}
+            onChange={(event) => {
+              const input = {
+                value: "",
+                source: event.target.value === "host-file" ? ("host-file" as const) : ("vault" as const),
+              }
+              setBusy(true)
+              void api
+                .request("PUT /bots/:id/provider-login", input, { id: botId })
+                .then(refresh)
+                .catch(() => setError("Não foi possível selecionar a fonte de login."))
+                .finally(() => setBusy(false))
+            }}
+          >
+            <option value="vault">Cofre de segredos deste bot</option>
+            <option value="host-file">Arquivo de login do host</option>
+          </select>
+        </label>
+      )}
+      <ProviderLoginFlow login={login} />
       <button
         type="button"
         className="button button-quiet"
-        disabled={!!status && status.provider !== provider}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          if (login.flow?.state === "waiting") void login.act("cancel")
+          setOpen(true)
+        }}
       >
-        {t("Entrar no provedor nesta máquina", {
-          provider: provider === "opencode" ? "OpenCode" : provider === "claude" ? "Claude" : "Codex",
-        })}
+        {t("Colar token manualmente")}
       </button>
       {open && (
         <div>

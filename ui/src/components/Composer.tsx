@@ -5,9 +5,12 @@ import { composerKeyAction } from "../composerKeys"
 import { userFacingError } from "../errors"
 import { useCloudAccount } from "../features/cloud/useCloudAccount"
 import { dropRejectionMessage, type FileDrop, listenForFileDrops } from "../fileDrops"
+import { t } from "../i18n"
 import { useComposerMachineIntent } from "../machineIntents"
+import { useProviderLogin } from "../useProviderLogin"
 import { useMascotComposer } from "./AvatarRuntime"
 import { BotAvatar } from "./BotAvatar"
+import { ProviderLoginFlow } from "./ProviderLoginFlow"
 import { useReveal } from "./Reveal"
 import "./Composer.css"
 
@@ -28,6 +31,7 @@ type ComposerProps = {
   onCancel: (runId: Id) => Promise<void>
   onOpenModel?: (() => void) | undefined
   onOpenPermissions?: (() => void) | undefined
+  onOpenProviderLogin?: (() => void) | undefined
 }
 
 /** Focusing a draft can invite the mascot to listen; only the runtime can signal work. */
@@ -82,7 +86,9 @@ export const Composer = ({
   onCancel,
   onOpenModel,
   onOpenPermissions,
+  onOpenProviderLogin,
 }: ComposerProps) => {
+  const login = useProviderLogin(api, bot?.id ?? "", bot?.provider ?? "codex", !!bot && bot.machine !== "cloud")
   const { account: cloudAccount } = useCloudAccount(api, bot?.machine === "cloud")
   const cloudUnavailable = bot?.machine === "cloud" && cloudAccount?.runtimeAvailable !== true
   const [focused, setFocused] = useState(false)
@@ -242,6 +248,7 @@ export const Composer = ({
   const chooseFiles = () => fileInput.current?.click()
   const uploading = files.some((file) => file.status === "loading")
   const blocked =
+    login.blocked ||
     cloudUnavailable ||
     sending ||
     uploading ||
@@ -350,6 +357,14 @@ export const Composer = ({
         </ul>
       )}
       {cloudUnavailable && <p role="status">Execução na nuvem chega em breve</p>}
+      {login.blocked && (
+        <>
+          <ProviderLoginFlow login={login} />
+          <button type="button" className="text-button" onClick={onOpenProviderLogin ?? onOpenPermissions}>
+            {t("Colar token manualmente")}
+          </button>
+        </>
+      )}
       <textarea
         disabled={cloudUnavailable}
         ref={inputRef}

@@ -530,8 +530,8 @@ const AppContent = ({ kernel }: AppProps) => {
         capability={data.machineCapability}
         projects={data.projects}
         onClose={closeModal}
-        onCreate={async (input) => {
-          await actions.createBot(input)
+        onCreate={async (input, loginDraftId) => {
+          await actions.createBot(input, loginDraftId)
           setRoute({ section: "bots", screen: "chat" })
         }}
       />

@@ -414,7 +414,7 @@ type BotCreateModalProps = {
   capability?: MachineCapability
   projects?: Array<Project>
   onClose: () => void
-  onCreate: (input: ApiRoutes["POST /bots"]["req"]) => Promise<void>
+  onCreate: (input: ApiRoutes["POST /bots"]["req"], loginDraftId?: string) => Promise<void>
 }
 
 export const BotCreateModal = ({
@@ -436,6 +436,17 @@ export const BotCreateModal = ({
   const [roleLine, setRoleLine] = useState("")
   const [title, setTitle] = useState("")
   const [provider, setProvider] = useState<Bot["provider"]>("codex")
+  const [loginDraftId] = useState(() => `draft-${crypto.randomUUID()}`)
+  const [providerLoginReady, setProviderLoginReady] = useState(false)
+  useEffect(
+    () => () => {
+      if (api)
+        void api
+          .request("POST /bots/:id/provider-login/flow", { provider, action: "cancel" }, { id: loginDraftId })
+          .catch(() => {})
+    },
+    [api, loginDraftId, provider],
+  )
   const [instructions, setInstructions] = useState("")
   const [model, setModel] = useState("")
   const [effort, setEffort] = useState<Bot["reasoningEffort"]>(null)
@@ -459,6 +470,10 @@ export const BotCreateModal = ({
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     if (!name.trim() || saving) return
+    if (api && machine.machine !== "cloud" && !providerLoginReady) {
+      goToStep(2)
+      return
+    }
     if (invalidMachine) {
       goToStep(3)
       return
@@ -466,7 +481,7 @@ export const BotCreateModal = ({
     setSaving(true)
     setError(null)
     try {
-      await onCreate({
+      const input = {
         name: name.trim(),
         roleLine: roleLine.trim() || null,
         title: title.trim() || null,
@@ -476,13 +491,18 @@ export const BotCreateModal = ({
         reasoningEffort: effort,
         projectId: projectId || null,
         browserEnabled,
-        access: access === "full-approved" ? "full" : (access as Bot["access"]),
-        approvals: access === "full" || (provider === "codex" && access === "full-approved") ? "never" : "on-request",
+        access: access === "full-approved" ? ("full" as const) : (access as Bot["access"]),
+        approvals:
+          access === "full" || (provider === "codex" && access === "full-approved")
+            ? ("never" as const)
+            : ("on-request" as const),
         avatarSeed,
         ...avatar,
         ...machine,
         ...(machine.machine === "cloud" ? { cloudApiKey } : {}),
-      })
+      }
+      if (api && machine.machine !== "cloud") await onCreate(input, loginDraftId)
+      else await onCreate(input)
       onClose()
     } catch (error) {
       setError(userFacingError(error))
@@ -595,6 +615,7 @@ export const BotCreateModal = ({
                 value={provider}
                 onChange={(event) => {
                   setProvider(event.target.value as Bot["provider"])
+                  setProviderLoginReady(false)
                   setModel("")
                   setEffort(null)
                   setMachine((current) => ({ ...current, vmProviderLogin: false }))
@@ -604,6 +625,15 @@ export const BotCreateModal = ({
                 <option value="claude">Claude Code</option>
                 <option value="opencode">OpenCode</option>
               </select>
+              {api && machine.machine !== "cloud" && (
+                <ProviderLogin
+                  api={api}
+                  botId={loginDraftId}
+                  provider={provider}
+                  onConfigured={() => {}}
+                  onReadyChange={setProviderLoginReady}
+                />
+              )}
               <label htmlFor="create-model">{t("Model")}</label>
               <ProviderMark provider={provider} />
               <ProviderModelField id="create-model" api={api} provider={provider} value={model} onChange={setModel} />
@@ -992,6 +1022,10 @@ export const BotSettingsModal = ({
                 id="settings-provider"
                 value={provider}
                 onChange={(event) => {
+                  if (api)
+                    void api
+                      .request("POST /bots/:id/provider-login/flow", { provider, action: "cancel" }, { id: bot.id })
+                      .catch(() => {})
                   setProvider(event.target.value as Bot["provider"])
                   setModel("")
                   setEffort(null)
@@ -1003,6 +1037,15 @@ export const BotSettingsModal = ({
                 <option value="opencode">OpenCode</option>
               </select>
             </SettingsRow>
+            {api && machine.machine !== "cloud" && (
+              <ProviderLogin
+                key={provider}
+                api={api}
+                botId={bot.id}
+                provider={provider}
+                onConfigured={() => setMachine((current) => ({ ...current, vmProviderLogin: true }))}
+              />
+            )}
             <SettingsRow
               title={t("Model")}
               description="Deixe em branco para usar o padrão do provedor."
@@ -1101,15 +1144,6 @@ export const BotSettingsModal = ({
                 : {})}
             />
             {api && bot.machine === "vm" && <BotNetworkSettings api={api} botId={bot.id} />}
-            {api && machine.machine === "vm" && (
-              <ProviderLogin
-                key={provider}
-                api={api}
-                botId={bot.id}
-                provider={provider}
-                onConfigured={() => setMachine((current) => ({ ...current, vmProviderLogin: true }))}
-              />
-            )}
           </SettingsGroup>
           <SettingsGroup title="Arquivos e navegador">
             <div className="settings-fields">

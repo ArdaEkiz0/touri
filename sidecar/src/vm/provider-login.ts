@@ -7,6 +7,16 @@ import { withDeadline } from "../kernel/policy"
 
 export const providerLoginAccount = (botId: string, provider: Bot["provider"]): string =>
   `bot/${botId}/${provider}-vm-login`
+export const redactProviderLogin = (kernel: Kernel, value: string) => {
+  kernel.addRedactionValue(value)
+  try {
+    const walk = (item: unknown) => {
+      if (typeof item === "string" && item.length >= 6) kernel.addRedactionValue(item)
+      else if (item && typeof item === "object") for (const child of Object.values(item)) walk(child)
+    }
+    walk(JSON.parse(value))
+  } catch {}
+}
 export const providerLoginSourceKey = (bot: Pick<Bot, "id" | "provider">) => `vm-login-source:${bot.id}:${bot.provider}`
 export type ProviderLoginSource = "vault" | "host-file"
 /** Time the host gets to answer a vault read; a macOS keychain prompt or a cold unlock can take longer than a few seconds. */
@@ -48,7 +58,7 @@ export class ProviderLoginError extends Error {
   }
 }
 
-const readHostLoginFile = (hostHome: string, target: LoginTarget): string => {
+export const readHostLoginFile = (hostHome: string, target: LoginTarget): string => {
   const directory = openSync(
     join(hostHome, target.directory),
     constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,

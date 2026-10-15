@@ -934,6 +934,7 @@ export const ChatPanel = ({
         onCancel={onCancel}
         onOpenModel={group ? undefined : onOpenModel}
         onOpenPermissions={group ? undefined : onOpenPermissions}
+        onOpenProviderLogin={group ? undefined : onOpenProviderLogin}
       />
       {/* End r8 composer. */}
     </section>

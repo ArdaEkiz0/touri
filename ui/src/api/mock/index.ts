@@ -501,6 +501,8 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
             : ["openai.com", "chatgpt.com"],
       } as unknown as ApiRoutes[typeof route]["res"]
     }
+    if (key === "GET /bots/:id/provider-login/flow" || key === "POST /bots/:id/provider-login/flow")
+      return { provider: (input as { provider: string }).provider, state: "ready" } as ApiRoutes[typeof route]["res"]
     if (key === "GET /bots/:id/provider-login")
       return {
         provider: "claude",

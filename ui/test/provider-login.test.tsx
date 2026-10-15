@@ -1,0 +1,240 @@
+import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react"
+import type { ApiRoutes, ProviderLoginFlow } from "@touri/contracts"
+import { createRef } from "react"
+import { afterEach, expect, it, vi } from "vitest"
+import type { ApiRequest } from "../src/api/client"
+import { createMockApi } from "../src/api/mock"
+import { Composer } from "../src/components/Composer"
+import { BotCreateModal } from "../src/components/Modals"
+import { ProviderLogin } from "../src/components/ProviderLogin"
+import { useWorkspace } from "../src/useWorkspace"
+
+afterEach(() => vi.useRealTimers())
+const fixture = (state: ProviderLoginFlow["state"] = "idle") => {
+  const api = createMockApi()
+  const original = api.request
+  const flows = new Map<string, ProviderLoginFlow>()
+  const request = vi.fn(async (route: string, input: Record<string, string>, path?: Record<string, string>) => {
+    if (route === "GET /bots/:id/provider-login/flow")
+      return flows.get(input.provider ?? "codex") ?? { provider: input.provider, state }
+    if (route === "POST /bots/:id/provider-login/flow") {
+      const flow: ProviderLoginFlow = {
+        provider: input.provider as ProviderLoginFlow["provider"],
+        state: input.action === "start" ? "waiting" : input.action === "cancel" ? "cancelled" : "ready",
+      }
+      flows.set(input.provider ?? "codex", flow)
+      return flow
+    }
+    return original(route as keyof ApiRoutes, input as never, path)
+  })
+  api.request = request as ApiRequest
+  return {
+    api,
+    request,
+    setFlow: (value: ProviderLoginFlow) => {
+      flows.set(value.provider, value)
+    },
+  }
+}
+
+it("starts OAuth automatically, polls the device code and cancels without restarting", async () => {
+  const f = fixture()
+  render(<ProviderLogin api={f.api} botId="bot" provider="codex" onConfigured={vi.fn()} />)
+  await screen.findByText("Aguardando login no navegador…")
+  expect(f.request).toHaveBeenCalledWith(
+    "POST /bots/:id/provider-login/flow",
+    { provider: "codex", action: "start" },
+    { id: "bot" },
+  )
+  expect(document.querySelector('input[type="password"]')).toBeNull()
+  vi.useFakeTimers()
+  f.setFlow({
+    provider: "codex",
+    state: "waiting",
+    deviceCode: "ABCD-EFGH",
+    verificationUrl: "https://auth.openai.com/codex/device",
+  })
+  // Install a new polling cycle under fake timers.
+  fireEvent.click(screen.getByRole("button", { name: "Cancelar login" }))
+  await act(async () => {})
+  expect(screen.getByText("Login cancelado.")).toBeVisible()
+  const starts = f.request.mock.calls.filter(([, input]) => input.action === "start")
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000)
+  })
+  expect(f.request.mock.calls.filter(([, input]) => input.action === "start")).toHaveLength(starts.length)
+})
+
+it("offers host login first and connects with one click", async () => {
+  const f = fixture("host-available")
+  const configured = vi.fn()
+  render(<ProviderLogin api={f.api} botId="bot" provider="codex" onConfigured={configured} />)
+  await screen.findByRole("button", { name: "Usar login deste Mac" })
+  expect(f.request.mock.calls.some(([, input]) => input.action === "start")).toBe(false)
+  expect(f.request.mock.calls.some(([route]) => route === "GET /bots/:id/provider-login")).toBe(false)
+  fireEvent.click(screen.getByRole("button", { name: "Usar login deste Mac" }))
+  await waitFor(() => expect(configured).toHaveBeenCalledOnce())
+  expect(f.request).toHaveBeenCalledWith(
+    "POST /bots/:id/provider-login/flow",
+    { provider: "codex", action: "use-host" },
+    { id: "bot" },
+  )
+})
+
+it("keeps paste hidden and does not clear a rejected draft credential", async () => {
+  const f = fixture("cancelled")
+  const original = f.api.request
+  f.api.request = (async (route, input, path) => {
+    if (route === "POST /bots/:id/provider-login/flow" && (input as { action?: string }).action === "paste")
+      throw new Error("vault unavailable")
+    return original(route, input, path)
+  }) as ApiRequest
+  const configured = vi.fn()
+  render(
+    <ProviderLogin
+      api={f.api}
+      botId="draft-00000000-0000-4000-8000-000000000000"
+      provider="codex"
+      onConfigured={configured}
+    />,
+  )
+  expect(document.querySelector('input[type="password"]')).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Colar token manualmente" }))
+  const input = screen.getByLabelText("Login JSON do Codex")
+  fireEvent.change(input, { target: { value: "synthetic-secret" } })
+  fireEvent.click(screen.getByRole("button", { name: "Salvar login no cofre" }))
+  await screen.findByRole("alert")
+  expect(input).toHaveValue("synthetic-secret")
+  expect(configured).not.toHaveBeenCalled()
+  expect(document.body.textContent).not.toContain("synthetic-secret")
+})
+
+it("composer blocks submission until login succeeds and shows the device challenge", async () => {
+  vi.useFakeTimers()
+  const f = fixture("waiting")
+  f.setFlow({ provider: "codex", state: "waiting", deviceCode: "ABCD-EFGH" })
+  const bot = f.api.getState().bots[0]
+  if (!bot) throw new Error("Missing fixture")
+  const send = vi.fn().mockResolvedValue(undefined)
+  const openLogin = vi.fn()
+  render(
+    <Composer
+      api={f.api}
+      bot={bot}
+      threadId="thread"
+      parentId={null}
+      draft="Primeira mensagem"
+      onDraft={vi.fn()}
+      inputRef={createRef()}
+      activeRun={null}
+      queuedCount={0}
+      onSend={send}
+      onCancel={vi.fn()}
+      onOpenProviderLogin={openLogin}
+    />,
+  )
+  await act(async () => {})
+  expect(screen.getByText("ABCD-EFGH")).toBeVisible()
+  const button = screen.getByRole("button", { name: "Enviar" })
+  expect(button).toBeDisabled()
+  fireEvent.click(screen.getByRole("button", { name: "Colar token manualmente" }))
+  expect(openLogin).toHaveBeenCalledOnce()
+  fireEvent.submit(screen.getByRole("form", { name: "Compor mensagem" }))
+  expect(send).not.toHaveBeenCalled()
+  f.setFlow({ provider: "codex", state: "ready" })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+  expect(button).toBeEnabled()
+  fireEvent.click(button)
+  expect(send).toHaveBeenCalledOnce()
+})
+
+it("opens the device login page once across simultaneous composer and settings views", async () => {
+  const f = fixture("waiting")
+  const open = vi.spyOn(window, "open").mockImplementation(() => null)
+  f.setFlow({ provider: "codex", state: "waiting", verificationUrl: "https://auth.openai.com/codex/device" })
+  const { unmount } = render(
+    <>
+      <ProviderLogin api={f.api} botId="bot" provider="codex" onConfigured={vi.fn()} />
+      <ProviderLogin api={f.api} botId="bot" provider="codex" onConfigured={vi.fn()} />
+    </>,
+  )
+  await waitFor(() =>
+    expect(open).toHaveBeenCalledExactlyOnceWith(
+      "https://auth.openai.com/codex/device",
+      "_blank",
+      "noopener,noreferrer",
+    ),
+  )
+  unmount()
+  open.mockRestore()
+})
+
+it("creation starts the selected provider before creating a bot and cancels on close", async () => {
+  const f = fixture()
+  const create = vi.fn()
+  const view = render(<BotCreateModal api={f.api} onCreate={create} onClose={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Pesquisa" } })
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }))
+  fireEvent.click(screen.getByRole("button", { name: "Continuar" }))
+  fireEvent.change(screen.getByLabelText("Provedor"), { target: { value: "claude" } })
+  await screen.findByText("Aguardando login no navegador…")
+  await waitFor(() =>
+    expect(f.request).toHaveBeenCalledWith(
+      "POST /bots/:id/provider-login/flow",
+      { provider: "claude", action: "start" },
+      { id: expect.stringMatching(/^draft-/) },
+    ),
+  )
+  expect(create).not.toHaveBeenCalled()
+  view.unmount()
+  expect(f.request).toHaveBeenCalledWith(
+    "POST /bots/:id/provider-login/flow",
+    { provider: "claude", action: "cancel" },
+    { id: expect.stringMatching(/^draft-/) },
+  )
+})
+
+it("relays OpenCode menu navigation to its own CLI", async () => {
+  const f = fixture("waiting")
+  f.setFlow({ provider: "opencode", state: "waiting", prompt: { kind: "provider", choice: "OpenAI" } })
+  render(<ProviderLogin api={f.api} botId="bot" provider="opencode" onConfigured={vi.fn()} />)
+  await screen.findByText("OpenAI")
+  fireEvent.click(screen.getByRole("button", { name: "Confirmar opção" }))
+  await waitFor(() =>
+    expect(f.request).toHaveBeenCalledWith(
+      "POST /bots/:id/provider-login/flow",
+      { provider: "opencode", action: "input", input: "enter" },
+      { id: "bot" },
+    ),
+  )
+})
+
+it("adopts creation login into the created bot and reuses that bot after a failed adoption", async () => {
+  const api = createMockApi()
+  const original = api.request
+  let denied = true
+  const request = vi.fn(async (route: keyof ApiRoutes, input: never, path?: Record<string, string>) => {
+    if (route === "POST /bots/:id/provider-login/flow" && denied) {
+      denied = false
+      throw new Error("vault unavailable")
+    }
+    return original(route, input, path)
+  })
+  api.request = request as ApiRequest
+  const { result } = renderHook(() => useWorkspace(api, false))
+  const input = { provider: "codex" as const, name: "Pesquisa" }
+  await act(async () => {
+    await expect(result.current.actions.createBot(input, "draft-test")).rejects.toThrow("vault unavailable")
+  })
+  await act(async () => {
+    await result.current.actions.createBot(input, "draft-test")
+  })
+  expect(request.mock.calls.filter(([route]) => route === "POST /bots")).toHaveLength(1)
+  expect(request).toHaveBeenCalledWith(
+    "POST /bots/:id/provider-login/flow",
+    { provider: "codex", action: "adopt", draftId: "draft-test" },
+    { id: result.current.data.selectedBotId },
+  )
+})
