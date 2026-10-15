@@ -18,6 +18,7 @@ export const ptBR = {
   "Iniciando…": "Iniciando…",
   "Não foi possível iniciar a rotina.": "Não foi possível iniciar a rotina.",
   "Não foi possível verificar o login.": "Não foi possível verificar o login.",
+  "Tentar de novo": "Tentar de novo",
   "Não foi possível salvar o login no cofre de segredos.": "Não foi possível salvar o login no cofre de segredos.",
   "Não foi possível remover o login.": "Não foi possível remover o login.",
   "Login do provedor nesta máquina": "Login do provedor nesta máquina",

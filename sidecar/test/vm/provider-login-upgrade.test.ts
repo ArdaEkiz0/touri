@@ -93,8 +93,9 @@ test("a denied vault is a transport failure, never a not-found", async () => {
   }
 })
 
-test("the vault read deadline leaves room for a keychain prompt", () => {
-  expect(VAULT_READ_DEADLINE_MS).toBeGreaterThanOrEqual(15000)
+test("the vault read deadline returns a useful failure within five seconds", () => {
+  expect(VAULT_READ_DEADLINE_MS).toBeLessThanOrEqual(5000)
+  expect(VAULT_READ_DEADLINE_MS).toBeGreaterThan(0)
 })
 
 test("an explicit source is never re-decided at run time", async () => {

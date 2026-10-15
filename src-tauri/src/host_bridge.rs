@@ -253,6 +253,23 @@ fn handle_connection(
             Ok(_) => {
                 let authenticated_before_request = authenticated;
                 let response = match serde_json::from_str::<RpcRequest>(line.trim()) {
+                    Ok(request) if authenticated && request.method != "auth" => {
+                        let request_writer = Arc::clone(&writer);
+                        let request_keychain = keychain.clone();
+                        let request_callbacks = callbacks.clone();
+                        // Prompts and Security framework calls can block. Keep reading this
+                        // connection and correlate concurrent responses by their request IDs.
+                        thread::spawn(move || {
+                            if let Some(response) = dispatch_authenticated_request(
+                                request,
+                                &request_keychain,
+                                &request_callbacks,
+                            ) {
+                                let _ = write_response(&request_writer, response);
+                            }
+                        });
+                        None
+                    }
                     Ok(request) => {
                         dispatch_request(request, &token, &mut authenticated, &keychain, &callbacks)
                     }
@@ -273,7 +290,14 @@ fn handle_connection(
                     }
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                ) =>
+            {
+                continue
+            }
             Err(_) => break,
         }
     }
@@ -305,6 +329,14 @@ fn dispatch_request(
             "host bridge authentication required",
         ));
     }
+    dispatch_authenticated_request(request, keychain, callbacks)
+}
+
+fn dispatch_authenticated_request(
+    request: RpcRequest,
+    keychain: &KeychainStore,
+    callbacks: &HostBridgeCallbacks,
+) -> Option<RpcResponse> {
     let result = match request.method.as_str() {
         "keychain.get" => request
             .params
@@ -472,7 +504,7 @@ mod tests {
     use crate::keychain::KeychainStore;
     use std::io::{BufRead, BufReader, Write};
     use std::os::unix::net::UnixStream;
-    use std::sync::Arc;
+    use std::sync::{mpsc, Arc, Mutex};
     use std::time::Duration;
 
     #[test]
@@ -506,5 +538,95 @@ mod tests {
         assert_eq!(response["error"]["code"], AUTH_REQUIRED_CODE);
         bridge.shutdown();
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keychain_read_bypasses_a_pending_prompt_on_the_same_connection() {
+        let (entered, prompt_entered) = mpsc::channel();
+        let (release, released) = mpsc::channel();
+        let released = Mutex::new(released);
+        let callbacks = HostBridgeCallbacks {
+            file_grants: Arc::new(crate::file_grants::FileGrants::new()),
+            secret_prompt: Arc::new(move |_| {
+                entered.send(()).expect("signal pending prompt");
+                released
+                    .lock()
+                    .expect("prompt release lock")
+                    .recv_timeout(Duration::from_secs(10))
+                    .expect("release prompt");
+                Ok(None)
+            }),
+            notify: Arc::new(|_, _, _, _| Ok(())),
+        };
+        let (host, mut connection) = UnixStream::pair().expect("create host connection");
+        host.set_read_timeout(Some(Duration::from_millis(20)))
+            .expect("set host read timeout");
+        let writer = Arc::new(Mutex::new(host.try_clone().expect("clone host writer")));
+        let handler = std::thread::spawn(move || {
+            super::handle_connection(
+                host,
+                writer,
+                "test-host-token".to_string(),
+                KeychainStore::new("ai.touri.desktop.secret.pipeline-test"),
+                callbacks,
+                Arc::new(Mutex::new(None)),
+            )
+        });
+        connection
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .expect("set test timeout");
+        // Authentication must take effect before any pipelined call is dispatched.
+        connection
+            .write_all(concat!(
+                "{\"id\":0,\"method\":\"keychain.get\",\"params\":{\"account\":\"missing\"}}\n",
+                "{\"id\":1,\"method\":\"auth\",\"params\":{\"token\":\"test-host-token\"}}\n",
+                "{\"id\":2,\"method\":\"secret.prompt\",\"params\":{\"requestId\":\"pending\",\"title\":\"Test\",\"origin\":\"https://example.test\",\"fieldKinds\":[\"password\"]}}\n"
+            ).as_bytes())
+            .expect("write pipelined calls");
+        let mut reader = BufReader::new(connection);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("read unauthenticated rejection");
+        let rejection: serde_json::Value = serde_json::from_str(&line).expect("valid rejection");
+        assert_eq!(rejection["id"], 0);
+        assert_eq!(rejection["error"]["code"], AUTH_REQUIRED_CODE);
+        line.clear();
+        reader.read_line(&mut line).expect("read authentication");
+        let auth: serde_json::Value = serde_json::from_str(&line).expect("valid auth response");
+        assert_eq!(auth["id"], 1);
+        assert_eq!(auth["result"]["ok"], true);
+        prompt_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("prompt is pending");
+        // The connection must keep accepting requests after an idle read timeout.
+        std::thread::sleep(Duration::from_millis(100));
+        reader
+            .get_mut()
+            .write_all(
+                b"{\"id\":3,\"method\":\"keychain.get\",\"params\":{\"account\":\"missing\"}}\n",
+            )
+            .expect("request keychain while prompt is pending");
+        line.clear();
+        let keychain_read = reader.read_line(&mut line);
+        // Always release the callback, including when serialization makes the read time out.
+        release.send(()).expect("release pending prompt");
+        keychain_read.expect("keychain must answer while the prompt is pending");
+        let response: serde_json::Value =
+            serde_json::from_str(&line).expect("valid keychain response");
+        assert_eq!(response["id"], 3);
+        // Progress must not depend on whether this test process can access the macOS keychain.
+        if response.get("error").is_some() {
+            assert_eq!(response["error"]["code"], super::INTERNAL_ERROR_CODE);
+        } else {
+            assert_eq!(response["result"], serde_json::json!({ "value": null }));
+        }
+        line.clear();
+        reader.read_line(&mut line).expect("read released prompt");
+        let prompt: serde_json::Value = serde_json::from_str(&line).expect("valid prompt response");
+        assert_eq!(prompt["id"], 2);
+        assert_eq!(prompt["result"], serde_json::json!({ "values": null }));
+        drop(reader);
+        handler.join().expect("host reader exits");
     }
 }
