@@ -114,6 +114,8 @@ it("accepts a message while the machine is preparing", async () => {
   const { props } = fixture("machine_service_unavailable", "starting")
   render(<ChatPanel {...props} messages={[]} />)
   expect(screen.getByText("Preparando o computador…")).toBeVisible()
+  // The composer may first wait for the provider login check.
+  await waitFor(() => expect(screen.queryByText("Colar token manualmente")).toBeNull())
   const input = screen.getByRole("textbox")
   fireEvent.change(input, { target: { value: "Prepare o relatório" } })
   fireEvent.keyDown(input, { key: "Enter" })
