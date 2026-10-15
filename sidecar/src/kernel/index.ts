@@ -247,6 +247,8 @@ export const createKernel = ({ appData, web }: { appData?: string; web?: WebMode
   const server = Bun.serve<KernelSocketData>({
     hostname: web?.hostname ?? "127.0.0.1",
     port: web?.port ?? 0,
+    // Login source discovery and credential reads each have a five-second vault deadline.
+    idleTimeout: 30,
     maxRequestBodySize: 32 * 1024 * 1024,
     error: (error) => {
       const failure = errorResponse(error)

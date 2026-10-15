@@ -19,12 +19,13 @@ export const ProviderLogin = ({
   const [open, setOpen] = useState(false)
   const [value, setValue] = useState("")
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ message: string; retrySave?: boolean } | null>(null)
   const refresh = useCallback(async () => {
+    setError(null)
     try {
       setStatus(await api.request("GET /bots/:id/provider-login", {}, { id: botId }))
     } catch {
-      setError(t("Não foi possível verificar o login."))
+      setError({ message: t("Não foi possível verificar o login.") })
     }
   }, [api, botId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: discard the previous provider's login state when the draft provider changes
@@ -46,7 +47,7 @@ export const ProviderLogin = ({
       onConfigured()
       await refresh()
     } catch {
-      setError(t("Não foi possível salvar o login no cofre de segredos."))
+      setError({ message: t("Não foi possível salvar o login no cofre de segredos."), retrySave: true })
     } finally {
       setBusy(false)
     }
@@ -73,7 +74,7 @@ export const ProviderLogin = ({
             void api
               .request("PUT /bots/:id/provider-login", input, { id: botId })
               .then(refresh)
-              .catch(() => setError("Não foi possível selecionar a fonte de login."))
+              .catch(() => setError({ message: "Não foi possível selecionar a fonte de login." }))
               .finally(() => setBusy(false))
           }}
         >
@@ -122,24 +123,26 @@ export const ProviderLogin = ({
               onChange={(event) => setValue(event.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="button button-brand"
-            disabled={busy || !value.trim()}
-            onClick={() => void save()}
-          >
-            {busy ? t("Salvando…") : t("Salvar login no cofre")}
-          </button>
-          <button
-            type="button"
-            className="button button-quiet"
-            onClick={() => {
-              setValue("")
-              setOpen(false)
-            }}
-          >
-            {t("Cancelar")}
-          </button>
+          <div className="provider-login-actions">
+            <button
+              type="button"
+              className="button button-brand"
+              disabled={busy || !value.trim()}
+              onClick={() => void save()}
+            >
+              {busy ? t("Salvando…") : t("Salvar login no cofre")}
+            </button>
+            <button
+              type="button"
+              className="button button-quiet"
+              onClick={() => {
+                setValue("")
+                setOpen(false)
+              }}
+            >
+              {t("Cancelar")}
+            </button>
+          </div>
         </div>
       )}
       {status?.ready && status.provider === provider && (
@@ -150,13 +153,29 @@ export const ProviderLogin = ({
             void api
               .request("DELETE /bots/:id/provider-login", {}, { id: botId })
               .then(refresh)
-              .catch(() => setError(t("Não foi possível remover o login.")))
+              .catch(() => setError({ message: t("Não foi possível remover o login.") }))
           }
         >
           {t("Remover login salvo deste bot")}
         </button>
       )}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{error.message}</p>}
+      {(error || (status?.provider === provider && status.health === "transport")) && (
+        <button
+          type="button"
+          className="button button-quiet"
+          disabled={busy}
+          onClick={() => {
+            if (error?.retrySave) void save()
+            else {
+              setBusy(true)
+              void refresh().finally(() => setBusy(false))
+            }
+          }}
+        >
+          {t("Tentar de novo")}
+        </button>
+      )}
     </section>
   )
 }
