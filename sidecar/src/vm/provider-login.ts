@@ -19,8 +19,8 @@ export const redactProviderLogin = (kernel: Kernel, value: string) => {
 }
 export const providerLoginSourceKey = (bot: Pick<Bot, "id" | "provider">) => `vm-login-source:${bot.id}:${bot.provider}`
 export type ProviderLoginSource = "vault" | "host-file"
-/** Time the host gets to answer a vault read; a macOS keychain prompt or a cold unlock can take longer than a few seconds. */
-export const VAULT_READ_DEADLINE_MS = 20000
+/** Keep vault failures within the HTTP request's idle timeout so the route can explain how to recover. */
+export const VAULT_READ_DEADLINE_MS = 5000
 export const storedProviderLoginSource = (
   kernel: Kernel,
   bot: Pick<Bot, "id" | "provider">,

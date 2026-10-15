@@ -133,24 +133,26 @@ export const ProviderLogin = ({
               onChange={(event) => setValue(event.target.value)}
             />
           </label>
-          <button
-            type="button"
-            className="button button-brand"
-            disabled={busy || !value.trim()}
-            onClick={() => void save()}
-          >
-            {busy ? t("Salvando…") : t("Salvar login no cofre")}
-          </button>
-          <button
-            type="button"
-            className="button button-quiet"
-            onClick={() => {
-              setValue("")
-              setOpen(false)
-            }}
-          >
-            {t("Cancelar")}
-          </button>
+          <div className="provider-login-actions">
+            <button
+              type="button"
+              className="button button-brand"
+              disabled={busy || !value.trim()}
+              onClick={() => void save()}
+            >
+              {busy ? t("Salvando…") : t("Salvar login no cofre")}
+            </button>
+            <button
+              type="button"
+              className="button button-quiet"
+              onClick={() => {
+                setValue("")
+                setOpen(false)
+              }}
+            >
+              {t("Cancelar")}
+            </button>
+          </div>
         </div>
       )}
       {status?.ready && status.provider === provider && (
