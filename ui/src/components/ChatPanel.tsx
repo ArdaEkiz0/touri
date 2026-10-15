@@ -1,4 +1,15 @@
-import type { Bot, BotGroup, Id, MachineState, Message, Routine, RoutineRun, Run, Thread } from "@touri/contracts"
+import type {
+  Bot,
+  BotGroup,
+  Id,
+  MachineState,
+  Message,
+  Project,
+  Routine,
+  RoutineRun,
+  Run,
+  Thread,
+} from "@touri/contracts"
 import { Fragment, type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import type { ApprovalFocus } from "../approvalNavigation"
@@ -40,6 +51,9 @@ type ChatPanelProps = {
   onOpenPermissions?: () => void
   onOpenProviderLogin?: () => void
   onOpenModel?: () => void
+  projects?: Project[]
+  onSelectProject?: (projectId: Id | null) => Promise<void>
+  onAddProject?: () => void
   onOpenComputer?: () => void
   thread: Thread | null
   bot: Bot | null
@@ -661,6 +675,9 @@ export const ChatPanel = ({
   onOpenPermissions,
   onOpenProviderLogin,
   onOpenModel,
+  projects,
+  onSelectProject,
+  onAddProject,
   onOpenComputer,
   routines = [],
   routineRuns = [],
@@ -943,6 +960,9 @@ export const ChatPanel = ({
         onSend={onSend}
         onCancel={onCancel}
         onOpenModel={group ? undefined : onOpenModel}
+        projects={projects}
+        onSelectProject={onSelectProject}
+        onAddProject={onAddProject}
         onOpenPermissions={group ? undefined : onOpenPermissions}
         onOpenProviderLogin={group ? undefined : onOpenProviderLogin}
       />

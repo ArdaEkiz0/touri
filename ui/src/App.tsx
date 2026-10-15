@@ -753,6 +753,11 @@ const AppContent = ({ kernel }: AppProps) => {
                           setModal("bot-settings")
                         }}
                         onOpenModel={() => openModal("bot-settings")}
+                        projects={data.projects}
+                        onSelectProject={async (projectId) => {
+                          if (selectedBot) await actions.updateBot(selectedBot.id, { projectId })
+                        }}
+                        onAddProject={() => openModal("project")}
                       />
                     </ErrorBoundary>
                     {/* r8 motion: preserve the panel during its inert exit */}
