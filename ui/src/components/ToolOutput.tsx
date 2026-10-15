@@ -1,0 +1,250 @@
+import { redactToolText } from "@touri/contracts/redaction"
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import type { UiApi } from "../api/client"
+import { localizeToolText } from "../i18n"
+import { contrastAnsiColor } from "./ansiContrast"
+import { parseAnsiOutput } from "./ansiOutput"
+import { browserToolResult } from "./browserToolPresentation"
+import { DiffOutput } from "./DiffOutput"
+import { EvidenceGallery } from "./EvidenceGallery"
+import { RevealDetails } from "./Reveal"
+import { ToolCode } from "./ToolCode"
+import type { ToolLanguage } from "./toolHighlight"
+import { asToolRecord, parseToolValue } from "./toolPresentation"
+
+type OutputImage = { src: string; mime: string }
+
+const localizedPrettyValue = (value: unknown): string =>
+  JSON.stringify(parseToolValue(localizeToolText(redactToolText(JSON.stringify(value)))), null, 2)
+
+/** Handles both MCP image blocks and Claude's base64 source envelope without touching the VM controls. */
+const readOutput = (raw: string) => {
+  const images: OutputImage[] = []
+  const texts: string[] = []
+  const visit = (value: unknown, depth = 0): void => {
+    if (depth > 6) return
+    if (Array.isArray(value)) {
+      if (value.some((item) => ["image", "text"].includes(String(asToolRecord(item)?.type)))) {
+        for (const item of value) visit(item, depth + 1)
+      } else texts.push(localizedPrettyValue(value))
+      return
+    }
+    const record = asToolRecord(value)
+    if (!record) {
+      texts.push(String(value ?? "Sem saída"))
+      return
+    }
+    if (record.type === "image" || typeof record.dataBase64 === "string") {
+      const source = asToolRecord(record.source) ?? record
+      const mime = source.mimeType ?? source.media_type ?? source.mime
+      const data = source.data ?? source.dataBase64
+      const prefix = `data:${mime};base64,`
+      const base64 = typeof data === "string" ? (data.startsWith(prefix) ? data.slice(prefix.length) : data) : null
+      if (
+        typeof mime === "string" &&
+        /^image\/(png|jpeg|webp|gif)$/.test(mime) &&
+        base64 !== null &&
+        base64.length <= 20 * 1024 * 1024 &&
+        /^[A-Za-z0-9+/]+={0,2}$/.test(base64)
+      )
+        images.push({ src: `data:${mime};base64,${base64}`, mime })
+      return
+    }
+    if (record.type === "text" && typeof record.text === "string") {
+      visit(parseToolValue(record.text), depth + 1)
+      return
+    }
+    if (
+      Array.isArray(record.content) &&
+      record.content.some((item) => ["image", "text"].includes(String(asToolRecord(item)?.type)))
+    ) {
+      visit(record.content, depth + 1)
+      if (record.structured ?? record.structuredContent)
+        texts.push(localizedPrettyValue(record.structured ?? record.structuredContent))
+      return
+    }
+    texts.push(localizedPrettyValue(record))
+  }
+  visit(parseToolValue(raw))
+  return { images, text: texts.join("\n") }
+}
+
+export const ToolText = ({ text, language }: { text: string; language?: ToolLanguage | undefined }) => {
+  const [expanded, setExpanded] = useState(false)
+  const localized = localizeToolText(redactToolText(text))
+  const parsed = parseToolValue(localized)
+  const structured = parsed !== null && typeof parsed === "object"
+  const safe = structured ? JSON.stringify(parsed, null, 2) : localized
+  const codeLanguage = language ?? (structured ? "json" : undefined)
+  const spans = useMemo(() => parseAnsiOutput(safe), [safe])
+  const codeRef = useRef<HTMLElement>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: expanding or replacing ANSI spans requires rechecking their DOM colors.
+  useLayoutEffect(() => {
+    const code = codeRef.current
+    if (!code || codeLanguage) return
+    const adjust = () => {
+      const surface = getComputedStyle(code.closest("pre") ?? code).backgroundColor
+      for (const node of code.querySelectorAll<HTMLElement>("span[data-ansi-color]")) {
+        node.style.color = node.dataset.ansiColor ?? ""
+        node.style.opacity = node.dataset.ansiOpacity ?? ""
+        const style = getComputedStyle(node)
+        const background = style.backgroundColor === "rgba(0, 0, 0, 0)" ? surface : style.backgroundColor
+        const color = contrastAnsiColor(style.color, background)
+        if (color !== style.color) node.style.color = color
+        // Faint text on arbitrary terminal backgrounds must remain readable too.
+        if (background && node.style.opacity) node.style.opacity = "1"
+      }
+    }
+    adjust()
+    const observer = new MutationObserver(adjust)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] })
+    const disclosure = code.closest("details")
+    if (disclosure) observer.observe(disclosure, { attributes: true, attributeFilter: ["open"] })
+    return () => observer.disconnect()
+  }, [spans, expanded, codeLanguage])
+  const length = codeLanguage ? safe.length : spans.reduce((total, span) => total + span.text.length, 0)
+  const truncated = length > 1200
+  let remaining = expanded ? Infinity : 1200
+  const visibleSpans = spans
+    .map((span) => {
+      const content = span.text.slice(0, remaining)
+      remaining = Math.max(0, remaining - content.length)
+      return { ...span, text: content }
+    })
+    .filter((span) => span.text)
+  return (
+    <div>
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: scrollable output needs keyboard access */}
+      <figure className="tool-code-region" aria-label="Saída da ferramenta" tabIndex={0}>
+        <pre>
+          {codeLanguage ? (
+            <ToolCode
+              text={`${expanded ? safe : safe.slice(0, 1200)}${truncated && !expanded ? "…" : ""}`}
+              language={codeLanguage}
+            />
+          ) : (
+            <code ref={codeRef}>
+              {visibleSpans.map((span) =>
+                Object.values(span.style).some(Boolean) ? (
+                  <span
+                    key={span.offset}
+                    style={span.style}
+                    data-ansi-color={span.style.color ?? ""}
+                    data-ansi-opacity={span.style.opacity}
+                  >
+                    {span.text}
+                  </span>
+                ) : (
+                  <Fragment key={span.offset}>{span.text}</Fragment>
+                ),
+              )}
+              {truncated && !expanded ? "…" : ""}
+            </code>
+          )}
+        </pre>
+      </figure>
+      {truncated && (
+        <button
+          type="button"
+          className="tool-text-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          {expanded ? "Recolher saída" : "Mostrar saída completa"}
+        </button>
+      )}
+    </div>
+  )
+}
+
+export const ToolOutput = ({
+  raw,
+  callId,
+  language,
+}: {
+  raw: string
+  callId: string
+  language?: ToolLanguage | undefined
+}) => {
+  const { images, text } = readOutput(raw)
+  return (
+    <>
+      {images.length > 0 && (
+        <EvidenceGallery
+          images={images.map((image, index) => ({
+            path: `${callId}-${index + 1}`,
+            src: image.src,
+            caption: "Captura de tela da ferramenta",
+            filename: `${callId}-${index + 1}.${image.mime.split("/")[1]}`,
+          }))}
+        />
+      )}
+      {text && (
+        <RevealDetails className="tool-details tool-output" summary="Resultado">
+          <ToolText text={text} language={language} />
+        </RevealDetails>
+      )}
+    </>
+  )
+}
+
+export const StoredToolOutput = ({
+  api,
+  attachmentId,
+  callId,
+  diff = false,
+  browser = false,
+}: {
+  api?: UiApi | undefined
+  attachmentId: string
+  callId: string
+  diff?: boolean
+  browser?: boolean
+}) => {
+  const [raw, setRaw] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(false)
+  const generation = useRef(0)
+  useEffect(() => {
+    generation.current += 1
+    return () => {
+      generation.current += 1
+    }
+  }, [])
+  const load = async () => {
+    if (!api || loading) return
+    const attempt = generation.current
+    setLoading(true)
+    setError(false)
+    try {
+      const file = await api.request("GET /attachments/:id", {}, { id: attachmentId })
+      const text = await file.text()
+      if (generation.current === attempt) setRaw(text)
+    } catch {
+      if (generation.current === attempt) setError(true)
+    } finally {
+      if (generation.current === attempt) setLoading(false)
+    }
+  }
+  const result = browser && raw !== null ? browserToolResult(raw) : null
+  return raw === null ? (
+    <div>
+      <button type="button" className="button button-quiet" disabled={!api || loading} onClick={() => void load()}>
+        {loading ? "Carregando resultado…" : "Abrir resultado completo"}
+      </button>
+      {error && <p role="status">Não foi possível abrir o resultado. Tente novamente.</p>}
+    </div>
+  ) : diff ? (
+    <RevealDetails className="tool-details tool-output" summary="Resultado">
+      <DiffOutput source={raw} />
+    </RevealDetails>
+  ) : (
+    <>
+      {result?.title && <p className="tool-summary">{result.title}</p>}
+      {result?.url && <p className="tool-summary">{result.url}</p>}
+      {(result ? result.output : raw) != null && (
+        <ToolOutput raw={(result ? result.output : raw) ?? ""} callId={callId} />
+      )}
+    </>
+  )
+}

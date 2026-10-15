@@ -1,0 +1,58 @@
+[
+  {
+    "id": "bot-mark-000000000000000000000001",
+    "threadId": "thread-mark-main-0000000000000000000001",
+    "name": "mark",
+    "title": "Marketing da Acme",
+    "description": "Fixture marketing bot",
+    "soul": "You are mark. Keep marketing work focused.",
+    "color": "#dc2626",
+    "section": "Acme",
+    "createdAt": 1760000000000,
+    "modelSelection": { "instanceId": "codex", "model": "gpt-fixture" },
+    "resumeCursors": { "codex": "rollout-mark-fixture" },
+    "cwd": "/home/user/javascript/MyApp",
+    "approvalMode": "full",
+    "browser": true,
+    "computer": true,
+    "tasks": [
+      { "threadId": "thread-mark-main-0000000000000000000001", "title": "mark", "createdAt": 1760000000000 },
+      {
+        "threadId": "thread-mark-chat-0000000000000000000002",
+        "title": "mark: branch",
+        "createdAt": 1760000001000,
+        "updatedAt": 1760000002000
+      }
+    ]
+  },
+  {
+    "id": "bot-onb-000000000000000000000002",
+    "threadId": "thread-onb-main-0000000000000000000003",
+    "name": "onb",
+    "title": "Onboarding",
+    "description": "Fixture onboarding bot",
+    "soul": "You are onb. Help users onboard safely.",
+    "color": "#991b1b",
+    "createdAt": 1760000000000,
+    "modelSelection": { "instanceId": "claude", "model": "claude-fixture" },
+    "approvalMode": "on-request",
+    "browser": false,
+    "computer": false,
+    "tasks": []
+  },
+  {
+    "id": "bot-panko-000000000000000000000003",
+    "threadId": "thread-panko-main-0000000000000000000004",
+    "name": "Panko",
+    "title": "Panko",
+    "description": "Fixture support bot",
+    "soul": "You are Panko. Be concise.",
+    "color": "#f87171",
+    "createdAt": 1760000000000,
+    "modelSelection": { "instanceId": "codex" },
+    "approvalMode": "full",
+    "browser": true,
+    "computer": false,
+    "tasks": []
+  }
+]

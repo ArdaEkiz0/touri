@@ -1,0 +1,505 @@
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import type { ApprovalPart, MessagePart, ToolCallPart } from "@touri/contracts"
+import { afterEach, expect, it, vi } from "vitest"
+import type { ApiRequest } from "../src/api/client"
+import { createMockApi } from "../src/api/mock"
+import { ApprovalCard } from "../src/components/ApprovalCard"
+import { fenceCode } from "../src/components/codeFence"
+import { MarkdownContent } from "../src/components/MarkdownContent"
+import { ToolCallCard } from "../src/components/ToolCallCard"
+import { ToolCallList } from "../src/components/ToolCallList"
+import { approvalMatchesTool, type ToolPart } from "../src/components/toolPresentation"
+
+const timestamp = new Date("2026-10-13T20:21:00Z").getTime()
+const tool: ToolCallPart = {
+  type: "tool_call",
+  callId: "bash-1",
+  tool: "Bash",
+  summary: "Claude tool Bash",
+  inputJson: '{"command":"printf QA_R7_APROVADO","description":"Imprimir marcador aprovado"}',
+  outputJson: null,
+  ok: null,
+}
+const approval: ApprovalPart = {
+  type: "approval",
+  approvalId: "approval-1",
+  request: "permission",
+  detail: `Bash: ${tool.inputJson}`,
+  scope: { source: "claude", tool: "Bash" },
+  allowStanding: true,
+  decision: "pending",
+}
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+})
+
+for (const field of ["file_path", "path", "filePath"]) {
+  it(`presents Read ${field} as a file chip with no JSON or field names`, () => {
+    const path = "/Users/user/javascript/my-app/README.md"
+    const view = render(
+      <ApprovalCard
+        part={{
+          ...approval,
+          detail: `Read: ${JSON.stringify({ [field]: path })}`,
+          scope: { source: "claude", tool: "Read" },
+        }}
+        api={createMockApi()}
+      />,
+    )
+    expect(screen.getByText("Ler arquivo")).toBeVisible()
+    const files = screen.getByRole("list", { name: "Arquivos" })
+    expect(files).toHaveTextContent(path)
+    expect(files.querySelector(".tool-file-chip")).toHaveAttribute("title", path)
+    expect(files.querySelector("strong")).toHaveTextContent("README.md")
+    expect(view.container.querySelector(".tool-input")).toBeNull()
+    expect(view.container.querySelector(".tool-summary")).toHaveTextContent("Consultar o conteúdo do arquivo")
+    expect(view.container.querySelector(".tool-technical")).not.toHaveAttribute("open")
+  })
+}
+
+it("retains Read ranges separately from the file chip", () => {
+  render(
+    <ToolCallCard part={{ ...tool, tool: "Read", inputJson: '{"file_path":"README.md","offset":20,"limit":10}' }} />,
+  )
+  expect(screen.getByRole("list", { name: "Arquivos" })).toHaveTextContent("README.md")
+  expect(screen.getByRole("figure", { name: "Parâmetros" })).toHaveTextContent("offset: 20")
+  expect(screen.getByRole("figure", { name: "Parâmetros" })).not.toHaveTextContent("file_path")
+})
+
+it("shows only the Bash command, a human description, one friendly title and opt-in technical JSON", async () => {
+  const user = userEvent.setup()
+  const view = render(<ApprovalCard part={approval} api={createMockApi()} createdAt={timestamp} />)
+  expect(screen.getAllByText("Terminal")).toHaveLength(1)
+  expect(screen.getByText("Imprimir marcador aprovado")).toBeVisible()
+  expect(screen.getByRole("figure", { name: "Comando" })).toHaveTextContent(/^printf QA_R7_APROVADO$/)
+  const technical = view.container.querySelector(".tool-technical")
+  expect(technical).not.toHaveAttribute("open")
+  await user.click(screen.getByText("Detalhes técnicos"))
+  expect(technical).toHaveAttribute("open")
+  expect(technical).toHaveTextContent('"command": "printf QA_R7_APROVADO"')
+  expect(view.container.querySelector(".tool-kind-icon svg")).toHaveAttribute("aria-hidden", "true")
+})
+
+it("renders historical plain-text Bash envelopes as the command alone", () => {
+  render(<ApprovalCard part={{ ...approval, detail: "Bash: date +%H:%M" }} api={createMockApi()} />)
+  expect(screen.getByRole("figure", { name: "Comando" })).toHaveTextContent(/^date \+%H:%M$/)
+})
+
+for (const [name, friendly] of [
+  ["browser_navigate", "Abrir página"],
+  ["computer_click", "Computador"],
+  ["mcp__docs__save", "docs · save"],
+] as const) {
+  it(`renders ${name} with a friendly name and readable nested key/value arguments`, () => {
+    render(
+      <ToolCallCard
+        part={{ ...tool, tool: name, inputJson: '{"url":"https://example.test","position":{"x":12,"y":24}}' }}
+      />,
+    )
+    expect(screen.getByText(friendly)).toBeVisible()
+    const args = screen.getByRole("figure", { name: "Parâmetros" })
+    expect(args).toHaveTextContent(`${name === "browser_navigate" ? "URL" : "url"}: https://example.test`)
+    expect(args).toHaveTextContent("position.x: 12")
+    expect(args).not.toHaveTextContent(/[{}]/)
+  })
+}
+
+for (const [label, patch, finished] of [
+  ["Executando", {}, false],
+  ["Concluído", { ok: true, resolvedAt: timestamp }, false],
+  ["Erro", { ok: false, resolvedAt: timestamp }, false],
+  ["Encerrado", {}, true],
+  ["Encerrado", { resolution: "interrupted" }, false],
+  ["Encerrado", { resolution: "canceled" }, false],
+  ["Encerrado", { resolution: "unknown" }, false],
+  ["Encerrado", { resolution: "cancelled_by_user" }, false],
+  ["Encerrado", { resolution: "interrupted_by_restart" }, false],
+  ["Concluído", { resolution: "completed_unobserved", ok: true }, false],
+  ["Erro", { resolution: "completed_unobserved", ok: false }, false],
+] as const) {
+  it(`renders the ${label} execution state without inventing a result`, () => {
+    render(<ToolCallCard part={{ ...tool, ...patch }} finished={finished} createdAt={timestamp} />)
+    expect(screen.getByRole("status")).toHaveTextContent(label)
+    expect(screen.getByRole("status").querySelector("time")).toHaveAttribute(
+      "dateTime",
+      new Date(timestamp).toISOString(),
+    )
+    expect(screen.queryByText("Resultado")).toBeNull()
+    if (label === "Encerrado") expect(screen.getByText("Resultado histórico indisponível.")).toBeVisible()
+  })
+}
+
+it("gives pending, denied and expired approval states precedence over tool execution", () => {
+  const view = render(<ApprovalCard part={approval} tool={{ ...tool, ok: true }} api={createMockApi()} />)
+  expect(screen.getByRole("status")).toHaveTextContent("Aguardando aprovação")
+  view.rerender(<ApprovalCard part={{ ...approval, decision: "denied" }} tool={tool} />)
+  expect(screen.getByText("Negado por você")).toBeVisible()
+  expect(view.container.querySelector(".tool-call-card")).toHaveAttribute("data-tool-status", "denied")
+  view.rerender(<ApprovalCard part={{ ...approval, decision: "expired" }} tool={tool} />)
+  expect(screen.getByText("Aprovação expirada")).toBeVisible()
+  expect(screen.queryByRole("button", { name: "Aprovar" })).toBeNull()
+})
+
+it("keeps approved execution separate from the decision, including its recorded local time", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(timestamp)
+  const view = render(<ApprovalCard part={approval} tool={tool} api={createMockApi()} />)
+  fireEvent.click(screen.getByRole("button", { name: "Aprovar" }))
+  await screen.findByText("Aprovado por você")
+  const chip = view.container.querySelector(".tool-decision-chip")
+  expect(chip).toHaveTextContent(
+    `Aprovado por você · ${new Date(timestamp).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`,
+  )
+  expect(chip?.querySelector("svg")).toBeInTheDocument()
+  expect(view.container.querySelector(".tool-status-chip")).toHaveTextContent("Executando")
+})
+
+it("retains decision time and focus when a server update moves the approval into its tool group", async () => {
+  vi.spyOn(Date, "now").mockReturnValue(timestamp)
+  const api = createMockApi()
+  let resolve: () => void = () => undefined
+  api.request = vi.fn(
+    () =>
+      new Promise<void>((done) => {
+        resolve = done
+      }),
+  ) as ApiRequest
+  const props = { api, finished: false, createdAt: timestamp }
+  const view = render(<ToolCallList {...props} parts={[tool, approval]} />)
+  fireEvent.click(screen.getByRole("button", { name: "Aprovar" }))
+  view.rerender(<ToolCallList {...props} parts={[tool, { ...approval, decision: "approved" }]} />)
+  await act(async () => resolve())
+  const card = screen.getByRole("article", { name: "Aprovação de ferramenta" })
+  expect(card).toHaveFocus()
+  expect(view.container.querySelector(".tool-group")).toHaveAttribute("open")
+  expect(card.querySelector(".tool-decision-chip time")).toHaveAttribute("dateTime", new Date(timestamp).toISOString())
+  expect(view.container.querySelectorAll(".tool-call-card")).toHaveLength(1)
+})
+
+it("does not invent a decision timestamp for restored approvals", () => {
+  const view = render(<ApprovalCard part={{ ...approval, decision: "approved" }} tool={tool} createdAt={timestamp} />)
+  expect(view.container.querySelector(".tool-decision-chip time")).toBeNull()
+  expect(screen.getByText("Aprovado por você")).toBeVisible()
+})
+
+for (const [key, decision] of [["{Escape}", "denied"]] as const) {
+  it(`answers ${decision} with ${key} only when the approval card is focused`, async () => {
+    const user = userEvent.setup()
+    const api = createMockApi()
+    render(<ApprovalCard part={approval} api={api} />)
+    await user.keyboard(key)
+    expect(api.calls).toHaveLength(0)
+    screen.getByRole("article", { name: "Aprovação de ferramenta" }).focus()
+    await user.keyboard(key)
+    expect(api.calls).toContainEqual({
+      route: "POST /approvals/:id",
+      input: { decision, standing: false },
+      pathValues: { id: approval.approvalId },
+    })
+  })
+}
+
+it("preserves Enter on action buttons and disclosure summaries instead of approving accidentally", async () => {
+  const user = userEvent.setup()
+  const api = createMockApi()
+  render(<ApprovalCard part={approval} api={api} />)
+  screen.getByText("Detalhes técnicos").focus()
+  await user.keyboard("{Enter}")
+  expect(api.calls).toHaveLength(0)
+  screen.getByRole("button", { name: "Negar" }).focus()
+  await user.keyboard("{Enter}")
+  expect(api.calls[0]?.input).toEqual({ decision: "denied", standing: false })
+})
+
+it("disables all decisions while sending, prevents duplicate answers, and recovers after failure", async () => {
+  const api = createMockApi()
+  let reject: (reason: Error) => void = () => undefined
+  const request = vi.fn(
+    () =>
+      new Promise((_resolve, rejectPromise) => {
+        reject = rejectPromise
+      }),
+  )
+  api.request = request as ApiRequest
+  render(<ApprovalCard part={approval} api={api} />)
+  const card = screen.getByRole("article", { name: "Aprovação de ferramenta" })
+  fireEvent.keyDown(card, { key: "Escape" })
+  fireEvent.keyDown(card, { key: "Escape" })
+  expect(request).toHaveBeenCalledTimes(1)
+  for (const button of screen.getAllByRole("button")) expect(button).toBeDisabled()
+  await act(async () => reject(new Error("Falha de conexão")))
+  expect(screen.getByRole("alert")).toHaveTextContent("Falha de conexão")
+  expect(screen.getByRole("button", { name: "Aprovar" })).toBeEnabled()
+  expect(screen.getByRole("button", { name: "Negar" })).toBeEnabled()
+})
+
+it("describes the standing grant's tool and bot scope, and hides it when unsupported", () => {
+  const view = render(
+    <ApprovalCard
+      part={{ ...approval, scope: { source: "mcp", server: "docs", tool: "save" } }}
+      api={createMockApi()}
+    />,
+  )
+  expect(screen.getByRole("button", { name: "Sempre neste bot" })).toHaveAccessibleDescription(
+    /novas chamadas de docs · save neste bot sem pedir aprovação/,
+  )
+  view.rerender(<ApprovalCard part={{ ...approval, allowStanding: false }} api={createMockApi()} />)
+  expect(screen.queryByRole("button", { name: "Sempre neste bot" })).toBeNull()
+})
+
+it("groups two completed calls inside one disclosure and keeps matched pending approvals outside it", async () => {
+  const user = userEvent.setup()
+  const second = { ...tool, callId: "bash-2", inputJson: '{"command":"pwd"}', ok: true }
+  const pendingTool = { ...tool, callId: "bash-3", inputJson: '{"command":"date"}' }
+  const pendingApproval = { ...approval, detail: `Bash: ${pendingTool.inputJson}` }
+  const view = render(
+    <ToolCallList
+      parts={[{ ...tool, ok: true }, second, pendingTool, pendingApproval]}
+      api={createMockApi()}
+      finished={false}
+      createdAt={timestamp}
+    />,
+  )
+  const group = view.container.querySelector(".tool-group")
+  expect(group?.querySelectorAll(".tool-call-card")).toHaveLength(2)
+  expect(group?.querySelector("[data-approval-id]")).toBeNull()
+  expect(screen.getByRole("button", { name: "Aprovar" })).toBeVisible()
+  expect(view.container.querySelectorAll(".tool-call-card")).toHaveLength(3)
+  await user.click(screen.getByText("2 ferramentas"))
+  expect(screen.getByText("pwd")).toBeVisible()
+  expect(screen.getAllByText("Terminal")).toHaveLength(3)
+})
+
+it("does not merge tool groups across text or attach approval to a different same-named call", () => {
+  const parts: MessagePart[] = [
+    tool,
+    { type: "text", text: "Outra etapa" },
+    { ...tool, callId: "bash-2", inputJson: '{"command":"pwd"}' },
+    approval,
+  ]
+  const view = render(<ToolCallList parts={parts} api={createMockApi()} finished={false} createdAt={timestamp} />)
+  const pending = screen.getByRole("article", { name: "Aprovação de ferramenta" })
+  expect(pending).toHaveAttribute("data-call-id", tool.callId)
+  expect(pending).not.toHaveTextContent("pwd")
+  expect(view.container.querySelectorAll(".tool-turn")).toHaveLength(2)
+})
+
+it("matches provider envelopes by arguments independent of object key order, not just tool name", () => {
+  expect(
+    approvalMatchesTool(
+      {
+        ...approval,
+        detail:
+          'Bash: "{\\"description\\":\\"Imprimir marcador aprovado\\",\\"command\\":\\"printf QA_R7_APROVADO\\"}"',
+      },
+      tool,
+    ),
+  ).toBe(true)
+  expect(approvalMatchesTool({ ...approval, detail: 'Bash: {"command":"rm -rf ./other"}' }, tool)).toBe(false)
+  expect(
+    approvalMatchesTool(
+      { ...approval, scope: { source: "mcp", server: "wrong", tool: "save" }, detail: "{}" },
+      { ...tool, tool: "mcp__docs__save", inputJson: "{}" },
+    ),
+  ).toBe(false)
+})
+
+it("collapses output separately and pretty prints structured JSON results", async () => {
+  const user = userEvent.setup()
+  const view = render(<ToolCallCard part={{ ...tool, ok: true, outputJson: '{"count":2,"items":["um","dois"]}' }} />)
+  const output = view.container.querySelector(".tool-output")
+  expect(output).not.toHaveAttribute("open")
+  await user.click(screen.getByText("Resultado"))
+  expect(output).toHaveAttribute("open")
+  expect(output?.querySelector("code")?.textContent).toBe(
+    '{\n  "count": 2,\n  "items": [\n    "um",\n    "dois"\n  ]\n}',
+  )
+})
+
+it("truncates long output with an accessible control to reveal the rest", async () => {
+  const user = userEvent.setup()
+  const view = render(<ToolCallCard part={{ ...tool, ok: true, outputJson: `${"linha\n".repeat(240)}FIM` }} />)
+  await user.click(screen.getByText("Resultado"))
+  const output = view.container.querySelector(".tool-output")
+  expect(output).not.toHaveTextContent("FIM")
+  await user.click(screen.getByRole("button", { name: "Mostrar saída completa" }))
+  expect(output).toHaveTextContent("FIM")
+  expect(screen.getByRole("button", { name: "Recolher saída" })).toHaveAttribute("aria-expanded", "true")
+})
+
+it("localizes tool descriptions in the summary, technical input and structured output", () => {
+  const view = render(
+    <ToolCallCard
+      part={{
+        ...tool,
+        inputJson: '{"command":"date","description":"Show current time"}',
+        outputJson: '{"description":"Show current time","command":"date"}',
+        ok: true,
+      }}
+    />,
+  )
+  expect(view.container.querySelector(".tool-summary")).toHaveTextContent("Mostrar a hora atual")
+  expect(view.container.querySelector(".tool-technical")).toHaveTextContent('"description": "Mostrar a hora atual"')
+  expect(view.container.querySelector(".tool-output")).toHaveTextContent('"description": "Mostrar a hora atual"')
+  expect(view.container).not.toHaveTextContent("Show current time")
+  expect(screen.getByRole("figure", { name: "Comando" })).toHaveTextContent(/^date$/)
+})
+
+for (const envelope of [
+  [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+  [{ type: "image", source: { type: "base64", data: "aGVsbG8=", media_type: "image/png" } }],
+  [
+    {
+      type: "text",
+      text: JSON.stringify({ success: true, content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }] }),
+    },
+  ],
+]) {
+  it("renders computer screenshots as accessible thumbnails without printing base64", () => {
+    const view = render(
+      <ToolCallCard part={{ ...tool, tool: "computer_screenshot", ok: true, outputJson: JSON.stringify(envelope) }} />,
+    )
+    expect(screen.getByRole("button", { name: "Abrir captura 1 em tamanho original" })).toBeVisible()
+    expect(screen.queryByRole("link", { name: "Baixar imagem" })).toBeNull()
+    expect(screen.getByRole("button", { name: "Baixar imagem" })).toBeVisible()
+    expect(view.container.querySelector(".tool-output")).toBeNull()
+    expect(view.container).not.toHaveTextContent("aGVsbG8=")
+  })
+}
+
+it("preserves commands verbatim while redacting credentials in every display, including technical details", () => {
+  const view = render(
+    <ToolCallCard
+      part={{
+        ...tool,
+        inputJson: JSON.stringify({ command: 'curl --token private-token "$HOME/a b"', apiKey: "private-api-key" }),
+      }}
+    />,
+  )
+  expect(screen.getByRole("figure", { name: "Comando" })).toHaveTextContent('curl --token [REDACTED] "$HOME/a b"')
+  expect(view.container).not.toHaveTextContent("private-token")
+  expect(view.container).not.toHaveTextContent("private-api-key")
+})
+
+it("keeps malformed or partial JSON out of the summary and readable parameters", () => {
+  const view = render(
+    <ToolCallCard part={{ ...tool, tool: "browser_navigate", inputJson: '{"url":"https://example.test"' }} />,
+  )
+  expect(view.container.querySelector(".tool-summary")).not.toHaveTextContent("{")
+  expect(screen.getByRole("figure", { name: "Parâmetros" })).toHaveTextContent("Parâmetros incompletos.")
+})
+
+for (const [exitCode, label] of [
+  [null, "Executando"],
+  [0, "Concluído"],
+  [1, "Erro"],
+] as const) {
+  it(`renders native commands with exit ${exitCode} as ${label}`, () => {
+    const part: ToolPart = { type: "command", callId: "cmd", command: "pwd", cwd: "/project", outputTail: "", exitCode }
+    render(<ToolCallCard part={part} />)
+    expect(screen.getByRole("status")).toHaveTextContent(label)
+    expect(screen.getByRole("figure", { name: "Comando" })).toHaveTextContent(/^pwd$/)
+  })
+}
+
+it("renders file changes in the same card family with collapsible diff", () => {
+  render(
+    <ToolCallCard
+      part={{
+        type: "file_change",
+        callId: "edit",
+        paths: ["README.md"],
+        diff: "+ atualizado",
+        resolution: "succeeded",
+      }}
+    />,
+  )
+  expect(screen.getByText("Arquivos")).toBeVisible()
+  expect(screen.getByRole("list", { name: "Arquivos" })).toHaveTextContent("README.md")
+  expect(screen.getByRole("status")).toHaveTextContent("Concluído")
+  expect(within(screen.getByRole("article", { name: "Ferramenta · Arquivos" })).getByText("Resultado")).toBeVisible()
+})
+
+it("keeps README fences and HTML literal in diffs and the explanation outside code", async () => {
+  const diff = "diff --git a/README.md b/README.md\n@@ -1,3 +1,4 @@\n ```js\n+<b>literal</b>\n ```\n+``````"
+  const view = render(<MarkdownContent content={`\`\`\`diff\n${diff}\n\`\`\`\n\nExplicação depois do diff.`} />)
+  const explanation = await screen.findByText("Explicação depois do diff.")
+  expect(explanation.closest("pre, code")).toBeNull()
+  expect(view.container.querySelector("pre code")?.textContent).toBe(diff)
+  expect(view.container.querySelector("b")).toBeNull()
+  expect(fenceCode(diff, "diff").split("\n")[0]).toBe("```````diff")
+  view.unmount()
+  const toolView = render(<ToolCallCard part={{ type: "file_change", callId: "readme", paths: ["README.md"], diff }} />)
+  expect(toolView.container.querySelector(".tool-output pre code")?.textContent).toBe(diff)
+})
+
+it("shows each consecutive approval's own request time in a shared message", () => {
+  const later = timestamp + 120_000
+  const view = render(
+    <ToolCallList parts={[{ ...approval, createdAt: timestamp }]} createdAt={timestamp - 60_000} finished={false} />,
+  )
+  expect(view.container.querySelector("time")?.dateTime).toBe(new Date(timestamp).toISOString())
+  view.rerender(
+    <ToolCallList
+      parts={[
+        { ...approval, createdAt: timestamp, decision: "approved" },
+        { ...approval, approvalId: "next", createdAt: later },
+      ]}
+      createdAt={timestamp - 60_000}
+      finished={false}
+    />,
+  )
+  expect(view.container.querySelector('[data-approval-id="next"] time')?.getAttribute("datetime")).toBe(
+    new Date(later).toISOString(),
+  )
+})
+
+it("preserves an unobserved failed file change when the interrupted turn is replayed", () => {
+  render(
+    <ToolCallCard
+      part={{
+        type: "file_change",
+        callId: "edit",
+        paths: ["arquivo.txt"],
+        diff: null,
+        resolution: "completed_unobserved",
+        completedOutcome: "failed",
+      }}
+    />,
+  )
+  expect(screen.getByRole("status")).toHaveTextContent("Erro")
+})
+
+it("never approves on Enter on the card or either approval button", async () => {
+  const user = userEvent.setup()
+  const api = createMockApi()
+  const request = vi.fn((_route: string, _input: unknown) => new Promise(() => undefined))
+  api.request = request as ApiRequest
+  render(<ApprovalCard part={approval} api={api} />)
+  const card = screen.getByRole("article", { name: "Aprovação de ferramenta" })
+  card.focus()
+  fireEvent.keyDown(card, { key: "Enter" })
+  fireEvent.keyDown(card, { key: "Enter", repeat: true })
+  for (const name of ["Aprovar", "Sempre neste bot"]) {
+    screen.getByRole("button", { name }).focus()
+    await user.keyboard("{Enter}")
+  }
+  expect(request).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("button", { name: "Aprovar" }))
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(request.mock.calls[0]?.[1]).toMatchObject({ decision: "approved" })
+})
+
+it("saves a screenshot through the native save_file command with its decoded bytes", async () => {
+  const invoke = vi.fn(async (_command: string, _args: unknown) => ({ path: "/tmp/bash-1-1.png" }))
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: { invoke } })
+  const envelope = { success: true, content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }] }
+  render(
+    <ToolCallCard part={{ ...tool, tool: "computer_screenshot", ok: true, outputJson: JSON.stringify(envelope) }} />,
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Baixar imagem" }))
+  expect(await screen.findByText("Salvo em /tmp/bash-1-1.png")).toBeVisible()
+  expect(invoke).toHaveBeenCalledWith("save_file", { name: "bash-1-1.png", dataBase64: "aGVsbG8=" }, undefined)
+  delete (window as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+})

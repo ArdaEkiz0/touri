@@ -1,0 +1,61 @@
+import type { MessagePart } from "@touri/contracts"
+import type { AvatarIdentity } from "@touri/contracts/avatar"
+import { activityLabelFor } from "./activityStatus"
+import { BotAvatar } from "./BotAvatar"
+import { type MascotState, mascotIsBusy } from "./mascotState"
+import { useReducedMotion } from "./useReducedMotion"
+
+const defaultBot = { id: "touri", name: "touri", color: null, avatarSeed: "touri-mascot" }
+
+export const ActivityMark = ({
+  state,
+  parts = [],
+  bot = defaultBot,
+  threadId,
+  onFocusApproval,
+}: {
+  state: MascotState
+  parts?: readonly MessagePart[]
+  bot?: AvatarIdentity | undefined
+  threadId?: string | undefined
+  onFocusApproval?: (approvalId: string) => void
+}) => {
+  const reduced = useReducedMotion()
+  const busy = mascotIsBusy(state)
+  if (!busy && state !== "waiting-approval") return null
+  const pending = parts.find((part) => part.type === "approval" && part.decision === "pending")
+  const approvalId = pending?.type === "approval" ? pending.approvalId : undefined
+  const label = activityLabelFor(state, parts)
+  return (
+    <div className="activity-mark" data-mascot-state={state} data-reduced-motion={reduced}>
+      <span className="activity-mascot" aria-hidden="true">
+        <BotAvatar bot={bot} still size={24} state={state} {...(threadId ? { threadId } : {})} />
+      </span>
+      <span className="activity-label" role="status" aria-atomic="true">
+        {state === "waiting-approval" && approvalId ? (
+          <a
+            className="activity-approval-link"
+            href={`#approval-${approvalId}`}
+            onClick={(event) => {
+              if (!onFocusApproval) return
+              event.preventDefault()
+              onFocusApproval(approvalId)
+            }}
+          >
+            {label}
+            <span aria-hidden="true"> ↗</span>
+          </a>
+        ) : (
+          label
+        )}
+      </span>
+      {busy && (
+        <span className="activity-dots" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </span>
+      )}
+    </div>
+  )
+}

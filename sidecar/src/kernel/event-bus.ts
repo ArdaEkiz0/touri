@@ -1,0 +1,170 @@
+import type { Database } from "bun:sqlite"
+import type { UiEvent, UiEventEnvelope } from "@touri/contracts"
+import type { ServerWebSocket } from "bun"
+import { compactTranscript, materializeTranscript } from "./transcript-storage"
+
+export type EventSocketData = { channel: "events"; since?: number }
+
+type EventSocket = Pick<ServerWebSocket<unknown>, "readyState" | "sendText"> &
+  Partial<Pick<ServerWebSocket<unknown>, "close">>
+
+export const createEventBus = (database?: Database) => {
+  let sequence = 0
+  const listeners = new Set<(envelope: UiEventEnvelope) => void>()
+  const sockets = new Set<EventSocket>()
+  let delivered = Number(
+    (database?.query("SELECT seq FROM sqlite_sequence WHERE name = 'ui_event_log'").get() as { seq: number } | null)
+      ?.seq ?? 0,
+  )
+  let scheduled = false
+  let stopped = false
+  let flushing = false
+  let compactedAt = delivered
+  const payloadFor = (envelope: UiEventEnvelope): string =>
+    JSON.stringify(envelope.event.type === "transcript.resync" ? { type: "resync", lastSeq: envelope.seq } : envelope)
+
+  const deliver = (envelope: UiEventEnvelope): void => {
+    const payload = payloadFor(envelope)
+    for (const listener of listeners) {
+      try {
+        listener(envelope)
+      } catch {
+        // A subscriber must not turn a committed write into a failed request.
+      }
+    }
+    for (const socket of sockets) {
+      try {
+        if (socket.readyState !== 1 || socket.sendText(payload) === 0) {
+          sockets.delete(socket)
+          socket.close?.(1013, "Tente reconectar")
+        }
+      } catch {
+        // A window reload can close its socket between iteration and send.
+        // That client must not interrupt persistence or other subscribers.
+        sockets.delete(socket)
+      }
+    }
+  }
+
+  // Messages are captured by SQLite triggers in the same transaction as their projection.
+  // Recover entries whose publisher crashed before sending them to the UI.
+  const captureTranscript = (): void => {
+    if (!database || stopped) return
+    database.transaction(() => {
+      const checkpoint = Number(
+        (
+          database.query("SELECT value FROM schema_meta WHERE key = 'transcript_event_checkpoint'").get() as {
+            value: string
+          } | null
+        )?.value ?? 0,
+      )
+      const rows = database
+        .query("SELECT id, at, event_json FROM transcript_entries WHERE id > ? ORDER BY id")
+        .all(checkpoint) as Array<{ id: number; at: number; event_json: string }>
+      for (const row of rows)
+        if (!JSON.parse(row.event_json).legacy)
+          database.query("INSERT INTO ui_event_log(at, event_json) VALUES (?, ?)").run(row.at, row.event_json)
+      const last = rows.at(-1)
+      if (last)
+        database
+          .query("UPDATE schema_meta SET value = ? WHERE key = 'transcript_event_checkpoint'")
+          .run(String(last.id))
+    })()
+  }
+
+  const replay = (since: number): Array<UiEventEnvelope> => {
+    if (!database) return []
+    const floor = Number(
+      (database.query("SELECT value FROM schema_meta WHERE key = 'ui_event_floor_seq'").get() as { value: string })
+        .value,
+    )
+    const head =
+      (database.query("SELECT seq FROM sqlite_sequence WHERE name = 'ui_event_log'").get() as { seq: number } | null)
+        ?.seq ?? 0
+    if (since < floor || since > head) return [{ seq: head, at: Date.now(), event: { type: "transcript.resync" } }]
+    return (
+      database.query("SELECT seq, at, event_json FROM ui_event_log WHERE seq > ? ORDER BY seq").all(since) as Array<{
+        seq: number
+        at: number
+        event_json: string
+      }>
+    ).map((row) => ({ seq: row.seq, at: row.at, event: JSON.parse(row.event_json) as UiEvent }))
+  }
+  const flush = (): void => {
+    scheduled = false
+    if (!database || stopped || flushing) return
+    flushing = true
+    try {
+      while (!stopped) {
+        const pending = replay(delivered)
+        if (!pending.length) break
+        for (const envelope of pending) {
+          delivered = envelope.seq
+          deliver(envelope)
+        }
+      }
+    } finally {
+      flushing = false
+    }
+    if (delivered - compactedAt >= 256) {
+      compactTranscript({ database })
+      compactedAt = delivered
+    }
+  }
+  const publish = (event: UiEvent): void => {
+    if (stopped) return
+    if (!database) {
+      deliver({ seq: ++sequence, at: Date.now(), event })
+      return
+    }
+    captureTranscript()
+    if (
+      !(
+        (event.type === "message.created" || event.type === "message.updated") &&
+        event.message.updatedSeq !== undefined
+      ) &&
+      !(event.type === "message.delta" && event.updatedSeq !== undefined) &&
+      event.type !== "transcript.rejected"
+    )
+      database.query("INSERT INTO ui_event_log(at, event_json) VALUES (?, ?)").run(Date.now(), JSON.stringify(event))
+    if (database.inTransaction) {
+      if (!scheduled) {
+        scheduled = true
+        queueMicrotask(flush)
+      }
+    } else flush()
+  }
+  captureTranscript()
+  if (database) {
+    materializeTranscript(database)
+  }
+
+  return {
+    publish,
+    subscribe: (listener: (envelope: UiEventEnvelope) => void): (() => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+    add: (socket: EventSocket, since = 0): void => {
+      captureTranscript()
+      flush()
+      if (database) {
+        compactTranscript({ database })
+        for (const envelope of replay(since)) {
+          if (socket.sendText(payloadFor(envelope)) === 0) {
+            socket.close?.(1013, "Tente reconectar")
+            return
+          }
+        }
+      }
+      sockets.add(socket)
+    },
+    remove: (socket: EventSocket): void => {
+      sockets.delete(socket)
+    },
+    replay,
+    stop: (): void => {
+      stopped = true
+    },
+  }
+}

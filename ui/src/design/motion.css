@@ -1,0 +1,333 @@
+@property --reveal {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+@property --panel-reveal {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+:root {
+  --inline-sign: 1;
+  --page-step: 1;
+  --duration-standard: 350ms;
+  --duration-slow: 650ms;
+  --duration-bounce: 650ms;
+  --duration-quick: 140ms;
+  --duration-surface: 240ms;
+  /* Safe fallbacks until the original spring compiler installs its samples. */
+  --ease-standard: ease-out;
+  --ease-slow: ease-in-out;
+  --ease-bounce: ease-out;
+  --ease-quick: ease-out;
+  --ease-surface: ease-out;
+}
+:root:dir(rtl) {
+  --inline-sign: -1;
+}
+.workspace-page {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  view-transition-name: workspace;
+}
+.workspace-page > * {
+  flex: 1;
+  min-height: 0;
+}
+.workspace-page:dir(rtl) {
+  --inline-sign: -1;
+}
+.composer {
+  --reveal: 0;
+  opacity: calc(clamp(0, var(--reveal), 1));
+  transform: translateY(calc((1 - var(--reveal)) * 8px)) scale(calc(0.98 + var(--reveal) * 0.02));
+  transition: --reveal var(--duration-bounce) var(--ease-bounce);
+}
+.tool-surface-reveal {
+  --reveal: 0;
+  opacity: clamp(0, var(--reveal), 1);
+  transform: translateY(calc((1 - var(--reveal)) * 4px));
+  transition: --reveal var(--duration-surface) var(--ease-surface);
+}
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-9) var(--space-11);
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--text-body);
+  font-size: var(--type-12);
+  text-align: start;
+}
+.disclosure-chevron {
+  display: inline-block;
+  width: 1ch;
+  transition: rotate var(--duration-surface) var(--ease-surface);
+}
+.animated-disclosure[data-expanded="true"] > .disclosure-summary > .disclosure-chevron {
+  rotate: 90deg;
+}
+.disclosure-reveal {
+  height: calc(clamp(0, var(--reveal), 1) * var(--disclosure-size, 0px));
+  overflow: hidden;
+  opacity: calc(clamp(0, var(--reveal), 1));
+  transform: translateY(calc((1 - var(--reveal)) * -4px));
+  transition: --reveal var(--duration-surface) var(--ease-surface);
+}
+.disclosure-content {
+  display: flow-root;
+}
+.disclosure-content > p {
+  padding: 0 var(--space-11) var(--space-9);
+}
+.disclosure-content .tool-disclosure {
+  padding-inline: var(--space-11);
+}
+button,
+input,
+select {
+  transition:
+    background-color var(--duration-standard) var(--ease-standard),
+    border-color var(--duration-standard) var(--ease-standard),
+    color var(--duration-standard) var(--ease-standard);
+}
+@keyframes page-push-pop-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--inline-sign) * var(--page-step) * 24px));
+  }
+}
+@keyframes page-push-pop-out {
+  to {
+    opacity: 0;
+    transform: translateX(calc(var(--inline-sign) * var(--page-step) * -24px));
+  }
+}
+::view-transition-old(workspace) {
+  animation: page-push-pop-out var(--duration-surface) var(--ease-surface) both;
+}
+::view-transition-new(workspace) {
+  animation: page-push-pop-in var(--duration-surface) var(--ease-surface) both;
+}
+::view-transition-group(workspace) {
+  animation-duration: var(--duration-surface);
+}
+
+/* r8 motion utilities — start. No activity marks or tool/approval card selectors. */
+.motion-presence {
+  --reveal: 0;
+  transition: --reveal var(--duration-surface) var(--ease-surface);
+}
+.motion-presence[data-motion-state="closed"] {
+  pointer-events: none;
+  transition-duration: var(--duration-quick);
+  transition-timing-function: var(--ease-quick);
+}
+.motion-modal,
+.motion-popover,
+.motion-toast {
+  display: contents;
+}
+.motion-modal .modal-backdrop,
+.motion-modal .search-backdrop {
+  opacity: clamp(0, var(--reveal), 1);
+}
+.motion-modal .modal-card,
+.motion-modal .search-modal {
+  transform: translateY(calc((1 - var(--reveal)) * 4px)) scale(calc(0.98 + var(--reveal) * 0.02));
+  transform-origin: center;
+}
+.motion-popover .notification-popover {
+  opacity: clamp(0, var(--reveal), 1);
+  transform: translateY(calc((1 - var(--reveal)) * 4px)) scale(calc(0.985 + var(--reveal) * 0.015));
+  transform-origin: bottom left;
+}
+.motion-toast .notice-bar {
+  opacity: clamp(0, var(--reveal), 1);
+  transform: translateY(calc((1 - var(--reveal)) * -6px));
+}
+.motion-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.motion-panel .bot-panel {
+  flex: 1;
+  min-height: 0;
+  animation: none;
+  opacity: clamp(0, var(--reveal), 1);
+  transform: translateX(calc(var(--inline-sign) * (1 - var(--reveal)) * 12px));
+}
+.bot-workspace.motion-workspace[data-motion-panel-open] {
+  --panel-reveal: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(0, calc(clamp(360px, 31%, 440px) * var(--panel-reveal)));
+  transition: --panel-reveal var(--duration-quick) var(--ease-quick);
+}
+.bot-workspace.motion-workspace[data-motion-panel-open="true"] {
+  --panel-reveal: 1;
+  transition-duration: var(--duration-surface);
+  transition-timing-function: var(--ease-surface);
+}
+.bot-workspace.motion-workspace.computer-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+.motion-segments {
+  position: relative;
+  isolation: isolate;
+}
+.motion-segments::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: var(--segment-y, 0px);
+  left: 0;
+  width: var(--segment-width, 0px);
+  height: var(--segment-height, 0px);
+  transform: translateX(var(--segment-x, 0px));
+  border: 1px solid var(--segment-border, transparent);
+  border-radius: var(--segment-radius, var(--radius-8));
+  background: var(--segment-fill, var(--surface-active));
+  pointer-events: none;
+}
+.motion-segments[data-motion-ready="true"]::before {
+  transition:
+    transform var(--duration-surface) var(--ease-surface),
+    width var(--duration-surface) var(--ease-surface),
+    height var(--duration-surface) var(--ease-surface);
+}
+.motion-segments > button {
+  position: relative;
+  z-index: 1;
+}
+.section-tabs.motion-segments button.active,
+.bot-panel-tabs.motion-segments button[aria-selected="true"] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+.bot-panel-tabs.motion-segments::before {
+  box-shadow: var(--elevation-badge);
+}
+.bot-panel-tabs.motion-segments {
+  --segment-radius: var(--radius-8);
+  --segment-fill: var(--surface-panel);
+  --segment-border: var(--border-default);
+}
+.motion-press,
+:is(.bot-sidebar, .chat-toolbar, .modal-header, .modal-actions, .bot-panel-top, .bot-panel-tabs) button {
+  transition:
+    background-color var(--duration-quick) var(--ease-quick),
+    border-color var(--duration-quick) var(--ease-quick),
+    color var(--duration-quick) var(--ease-quick),
+    scale var(--duration-quick) var(--ease-quick);
+}
+.motion-press:active:not(:disabled),
+:is(.chat-toolbar, .modal-header, .modal-actions, .bot-panel-top) button:active:not(:disabled) {
+  scale: 0.97;
+}
+.bot-sidebar :is(.thread-row, .bot-row-main):active:not(:disabled) {
+  scale: 0.995;
+}
+@keyframes motion-item-in {
+  from {
+    opacity: 0;
+    translate: 0 4px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+.motion-insert,
+.thread-row[data-motion-insert="true"],
+.message-bubble[data-motion-insert="true"] > :is(.message-meta, .markdown-content) {
+  animation: motion-item-in var(--duration-surface) var(--ease-surface);
+}
+/* Only text enters. Streaming updates and status/tool children stay still. */
+.message-scroll .message-bubble {
+  animation: none;
+}
+.motion-skeleton {
+  display: grid;
+  gap: var(--space-8);
+  width: min(280px, 100%);
+}
+.motion-skeleton > span {
+  display: block;
+  height: 10px;
+  border-radius: var(--radius-8);
+  background: linear-gradient(
+    100deg,
+    var(--surface-control) 25%,
+    var(--surface-selected) 45%,
+    var(--surface-control) 65%
+  );
+  background-size: 250% 100%;
+  animation: motion-skeleton-shimmer 1600ms linear infinite;
+}
+.motion-skeleton > span:last-child {
+  width: 68%;
+}
+@keyframes motion-skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+@media (max-width: 1000px) {
+  .bot-workspace.motion-workspace[data-motion-panel-open] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .motion-panel {
+    display: contents;
+  }
+}
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+:root[data-motion="reduce"] .motion-skeleton > span {
+  background: var(--surface-control);
+}
+:root[data-motion="reduce"]::view-transition-group(*),
+:root[data-motion="reduce"]::view-transition-old(*),
+:root[data-motion="reduce"]::view-transition-new(*) {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .motion-skeleton > span {
+    background: var(--surface-control);
+  }
+}
+/* r8 motion utilities — end. */
+
+/* One policy covers CSS effects, generated springs and native view snapshots. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}

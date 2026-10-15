@@ -1,0 +1,321 @@
+import { Blob as NodeBlob } from "node:buffer"
+import { readdirSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { createMockApi } from "../src/api/mock"
+import { BotLibrary } from "../src/components/BotLibrary"
+import { EvidenceContext, type EvidenceContextValue, EvidenceGallery } from "../src/components/EvidenceGallery"
+import { evidencePath } from "../src/components/evidenceMarkdown"
+import { imageDimensions, loadImage, thumbnailBlob } from "../src/components/imageLoads"
+import { MarkdownContent } from "../src/components/MarkdownContent"
+import { ToolOutput } from "../src/components/ToolOutput"
+import { ApiError } from "../src/errors"
+
+const { saveInvoke } = vi.hoisted(() => ({
+  saveInvoke: vi.fn(async (_command: string, _args: unknown) => ({ path: "/tmp/shot-1.png" })),
+}))
+vi.mock("@tauri-apps/api/core", () => ({ invoke: saveInvoke }))
+const blob = new NodeBlob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: "image/png" }) as unknown as Blob
+const createUrl = vi.fn(() => `blob:fixture-${Math.random()}`)
+const revokeUrl = vi.fn()
+const bitmapClose = vi.fn()
+beforeEach(() => {
+  Object.defineProperty(window, "__TAURI_INTERNALS__", { configurable: true, value: {} })
+  saveInvoke.mockClear()
+  vi.stubGlobal("Blob", NodeBlob)
+  vi.stubGlobal("PointerEvent", MouseEvent)
+  HTMLElement.prototype.setPointerCapture = vi.fn()
+  vi.stubGlobal(
+    "createImageBitmap",
+    vi.fn(async () => ({ width: 480, height: 320, close: bitmapClose })),
+  )
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ blob: async () => blob })),
+  )
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createUrl })
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeUrl })
+  Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+    configurable: true,
+    value: (callback: (blob: Blob) => void) => callback(blob),
+  })
+  HTMLDialogElement.prototype.showModal = function () {
+    this.setAttribute("open", "")
+  }
+  HTMLDialogElement.prototype.close = function () {
+    this.removeAttribute("open")
+  }
+})
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+  vi.clearAllMocks()
+})
+const fixture = () => {
+  const api = createMockApi()
+  const bot = api.getState().bots[0]
+  if (!bot) throw new Error("Missing fixture")
+  const request = vi.fn(async (..._args: unknown[]) => blob)
+  const context: EvidenceContextValue = {
+    api: { ...api, request: request as never },
+    bot: { ...bot, machine: "vm" },
+    onComputer: vi.fn(),
+    onLibrary: vi.fn(),
+  }
+  return { context, request }
+}
+
+describe("safe markdown evidence", () => {
+  it("detects syntax, links, bare and inline-code paths, deduplicates and leaves fenced code/remote/HTML alone", async () => {
+    const { context, request } = fixture()
+    const view = render(
+      <MarkdownContent
+        evidence={context}
+        content={
+          '![Tela inicial](/workspace/shots/a.png)\n\n[captura](/workspace/shots/b.jpg)\n\n/workspace/shots/c.webp e `./shots/d.gif`, local.jpeg\n\n/workspace/shots/a.png\n\n```sh\n/workspace/ignore.png\n```\n\n![remote](https://example.test/remote.png)\n\n<img src="/workspace/html.png" onerror="alert(1)">'
+        }
+      />,
+    )
+    const gallery = await screen.findByRole("region", { name: "Imagens de evidência" }, { timeout: 5000 })
+    expect(gallery.querySelectorAll("figure")).toHaveLength(5)
+    expect(gallery).toHaveTextContent("Tela inicial")
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(5))
+    expect(request.mock.calls.map((call) => (call as unknown as [string, { path: string }])[1].path)).toEqual(
+      expect.arrayContaining([
+        "/workspace/shots/a.png",
+        "/workspace/shots/b.jpg",
+        "/workspace/shots/c.webp",
+        "./shots/d.gif",
+        "local.jpeg",
+      ]),
+    )
+    expect(view.container.querySelector("script, img[onerror], img[src^='https:']")).toBeNull()
+    expect(view.container.querySelector("pre")).toHaveTextContent("/workspace/ignore.png")
+  })
+  it("rejects traversal, encoded remote URLs, and dangerous schemes", async () => {
+    for (const path of [
+      "../a.png",
+      "/workspace/../a.png",
+      "https://x/a.png",
+      "//x/a.png",
+      "javascript:a.png",
+      "file:///workspace/a.png",
+      "x\\a.png",
+    ])
+      expect(evidencePath(path)).toBe(false)
+    const { context, request } = fixture()
+    render(
+      <MarkdownContent evidence={context} content={"![escape](%2e%2e/a.png)\n\n![remote](https%3A%2F%2Fx%2Fa.png)"} />,
+    )
+    await screen.findByText("escape")
+    expect(screen.queryByRole("region", { name: "Imagens de evidência" })).toBeNull()
+    expect(request).not.toHaveBeenCalled()
+  })
+  it("uses report-directory relative paths from the Library", async () => {
+    const { context, request } = fixture()
+    const api = createMockApi()
+    const baseRequest = api.request
+    api.request = async (route, input, params) => {
+      if (route === "GET /bots/:id/images") return request(route, input, params) as never
+      if (route === "GET /bots/:id/files/content")
+        return {
+          name: "report.md",
+          mime: "text/markdown",
+          base64: btoa("# Report\n\n![Checkout](shots/checkout.png)"),
+        } as never
+      if (route === "GET /bots/:id/files")
+        return {
+          files: [
+            { name: "reports", path: "reports", directory: true, bytes: 0 },
+            { name: "report.md", path: "reports/report.md", directory: false, bytes: 60 },
+          ],
+        } as never
+      return baseRequest(route, input, params)
+    }
+    render(<BotLibrary api={api} bot={context.bot} />)
+    fireEvent.click(await screen.findByRole("button", { name: /reports.*Pasta/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /report.md.*KiB/ }))
+    expect(await screen.findByRole("region", { name: "Imagens de evidência" })).toBeVisible()
+    await waitFor(() =>
+      expect(request).toHaveBeenCalledWith(
+        "GET /bots/:id/images",
+        { path: "shots/checkout.png", base: "reports" },
+        { id: context.bot.id },
+      ),
+    )
+  })
+})
+it("opens the same lightbox for tool screenshots with zoom, navigation, saving, keyboard and focus restoration", async () => {
+  const view = render(
+    <ToolOutput
+      callId="shot"
+      raw={JSON.stringify({
+        content: [1, 2].map(() => ({ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" })),
+      })}
+    />,
+  )
+  const trigger = screen.getByRole("button", { name: "Abrir captura 1 em tamanho original" })
+  trigger.focus()
+  fireEvent.click(trigger)
+  const dialog = await screen.findByRole("dialog")
+  await waitFor(() => expect(dialog.querySelector("img")).not.toBeNull())
+  expect(dialog.querySelector("img")?.getAttribute("src")).toMatch(/^data:image\//)
+  fireEvent.click(screen.getByRole("button", { name: "Aumentar zoom" }))
+  expect(dialog.querySelector("img")).toHaveStyle({ transform: "translate(0px, 0px) scale(1.5)" })
+  const stage = dialog.querySelector(".evidence-stage")
+  if (!stage) throw new Error("Missing image stage")
+  fireEvent.pointerDown(stage, { clientX: 10, clientY: 10 })
+  fireEvent.pointerMove(stage, { clientX: 60, clientY: 30 })
+  expect(dialog.querySelector("img")).toHaveStyle({ transform: "translate(50px, 20px) scale(1.5)" })
+  fireEvent.pointerUp(stage)
+  fireEvent.click(screen.getByRole("button", { name: "Próxima" }))
+  expect(dialog).toHaveTextContent("2/2")
+  fireEvent.keyDown(document, { key: "ArrowLeft" })
+  expect(dialog).toHaveTextContent("1/2")
+  fireEvent.click(await screen.findByRole("button", { name: "Salvar" }))
+  await waitFor(() =>
+    expect(saveInvoke).toHaveBeenCalledWith("save_file", expect.objectContaining({ name: "shot-1.png" })),
+  )
+  expect(await screen.findByText("Salvo em /tmp/shot-1.png")).toBeVisible()
+  fireEvent.click(screen.getByRole("button", { name: "Fechar imagem" }))
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(trigger).toHaveFocus()
+  view.unmount()
+  expect(bitmapClose).toHaveBeenCalled()
+  expect(createUrl).not.toHaveBeenCalled()
+})
+it("opens workspace evidence in the Library from the lightbox", async () => {
+  const { context } = fixture()
+  render(
+    <EvidenceContext.Provider value={context}>
+      <EvidenceGallery images={[{ path: "/workspace/a.png", filename: "a.png", caption: "Tela" }]} />
+    </EvidenceContext.Provider>,
+  )
+  fireEvent.click(screen.getByRole("button", { name: /Abrir captura/ }))
+  fireEvent.click(await screen.findByRole("button", { name: "Abrir na Biblioteca" }))
+  expect(context.onLibrary).toHaveBeenCalledWith("/workspace/a.png")
+  expect(screen.queryByRole("dialog")).toBeNull()
+})
+it("shows stopped VM availability and Computer action without starting a machine", async () => {
+  const { context, request } = fixture()
+  request.mockRejectedValue(new ApiError(409, "Stopped", "IMAGE_MACHINE_STOPPED"))
+  render(<MarkdownContent evidence={context} content="![Tela](/workspace/a.png)" />)
+  expect(await screen.findByText("Imagem disponível quando a máquina estiver ligada")).toBeVisible()
+  fireEvent.click(screen.getByRole("button", { name: "Abrir Computador" }))
+  expect(context.onComputer).toHaveBeenCalled()
+  expect(request.mock.calls.every((call) => (call as unknown as [string])[0] === "GET /bots/:id/images")).toBe(true)
+})
+it("keeps image sources stable across streamed text updates, uses data URLs only and stops reads on unmount", async () => {
+  const { context, request } = fixture()
+  const view = render(<MarkdownContent evidence={context} content="![Tela](/workspace/a.png)" />)
+  const image = await screen.findByRole("img", { name: "Tela" })
+  const source = image.getAttribute("src") ?? ""
+  expect(source).toMatch(/^data:image\//)
+  expect(request).toHaveBeenCalledTimes(1)
+  view.rerender(<MarkdownContent evidence={context} content={"![Tela](/workspace/a.png)\n\nMais texto"} />)
+  await screen.findByText("Mais texto")
+  expect(request).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole("img", { name: "Tela" })).toHaveAttribute("src", source)
+  const errors = vi.spyOn(console, "error").mockImplementation(() => {})
+  view.unmount()
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+  expect(errors).not.toHaveBeenCalled()
+  expect(createUrl).not.toHaveBeenCalled()
+  expect(revokeUrl).not.toHaveBeenCalled()
+})
+
+it("never uses object URLs for image sources in ui/src", () => {
+  const root = join(import.meta.dirname, "../src")
+  const files = (readdirSync(root, { recursive: true }) as string[]).filter((f) => /\.tsx?$/.test(f))
+  const offenders = files.filter(
+    (f) => f !== "browserSave.ts" && readFileSync(join(root, f), "utf8").includes("createObjectURL"),
+  )
+  expect(offenders).toEqual([])
+})
+it("limits concurrent loads to three", async () => {
+  let active = 0
+  let maximum = 0
+  const release: Array<() => void> = []
+  const work = Array.from({ length: 7 }, () =>
+    loadImage(async () => {
+      active++
+      maximum = Math.max(active, maximum)
+      await new Promise<void>((resolve) => release.push(resolve))
+      active--
+    }),
+  )
+  await act(async () => {
+    await Promise.resolve()
+  })
+  expect(active).toBe(3)
+  while (release.length) {
+    release.shift()?.()
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+  }
+  await Promise.all(work)
+  expect(maximum).toBe(3)
+})
+
+it("downscales large portrait images without stretching or retaining the original bitmap", async () => {
+  const bytes = new Uint8Array(24)
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10])
+  const view = new DataView(bytes.buffer)
+  view.setUint32(16, 1200)
+  view.setUint32(20, 2400)
+  expect(imageDimensions(bytes)).toEqual({ width: 1200, height: 2400 })
+  await thumbnailBlob(new Blob([bytes]))
+  expect(createImageBitmap).toHaveBeenCalledWith(expect.any(Blob), {
+    resizeWidth: 160,
+    resizeHeight: 320,
+    resizeQuality: "medium",
+  })
+  expect(bitmapClose).toHaveBeenCalledOnce()
+})
+
+it("renders explicit images without extensions and resolves attachment route references", async () => {
+  const { context, request } = fixture()
+  const id = "a".repeat(64)
+  render(
+    <MarkdownContent
+      evidence={context}
+      content={`![Sem extensão](/workspace/shot)\n\n![Anexo](/api/v1/attachments/${id})`}
+    />,
+  )
+  await screen.findByRole("region", { name: "Imagens de evidência" })
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith("GET /bots/:id/images", { attachmentId: id }, { id: context.bot.id }),
+  )
+  expect(request).toHaveBeenCalledWith("GET /bots/:id/images", { path: "/workspace/shot" }, { id: context.bot.id })
+})
+
+it("defers image reads until a thumbnail enters the viewport", async () => {
+  const { context, request } = fixture()
+  let visible: ((entries: Array<{ isIntersecting: boolean }>) => void) | undefined
+  const disconnect = vi.fn()
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(callback: typeof visible) {
+        visible = callback
+      }
+      observe() {}
+      disconnect = disconnect
+    },
+  )
+  render(<MarkdownContent evidence={context} content="![Tela](/workspace/a.png)" />)
+  await screen.findByRole("region", { name: "Imagens de evidência" })
+  expect(request).not.toHaveBeenCalled()
+  act(() => visible?.([{ isIntersecting: true }]))
+  const image = await screen.findByRole("img", { name: "Tela" })
+  expect(image).toHaveAttribute("loading", "lazy")
+  expect(image.getAttribute("src")).toMatch(/^data:image\//)
+  expect(createUrl).not.toHaveBeenCalled()
+  expect(request).toHaveBeenCalledOnce()
+  expect(disconnect).toHaveBeenCalled()
+})

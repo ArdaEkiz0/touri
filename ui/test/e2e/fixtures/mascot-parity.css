@@ -1,0 +1,61 @@
+body {
+  margin: 0;
+  background: #242426;
+  color: #eee;
+  font:
+    12px Arial,
+    sans-serif;
+}
+#gallery {
+  width: 848px;
+  padding: 20px;
+  box-sizing: border-box;
+  background: #242426;
+}
+.parity-grid {
+  display: grid;
+  grid-template-columns: 80px repeat(7, 96px);
+  column-gap: 8px;
+  row-gap: 12px;
+  align-items: center;
+}
+.parity-heading {
+  height: 28px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+}
+.parity-seed {
+  height: 88px;
+  display: grid;
+  align-items: center;
+  font-weight: 600;
+}
+.parity-cell {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  background: #2c2c2f;
+  border-radius: 8px;
+}
+.parity-size {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 10px;
+}
+.parity-size small {
+  font-size: 9px;
+  color: #aaa;
+  line-height: 12px;
+}
+.parity-cell .tb-avatar {
+  --avatar-optical-y: 0;
+}
+#controls {
+  padding: 12px 20px;
+  height: 44px;
+  box-sizing: border-box;
+}

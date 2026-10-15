@@ -1,0 +1,15 @@
+{
+  "bots": [
+    { "id": "bot-mark", "name": "mark", "provider": "codex", "paused": false, "unread": 2 },
+    { "id": "bot-onb", "name": "onb", "provider": "claude", "paused": false, "unread": 0 },
+    { "id": "bot-panko", "name": "Panko", "provider": "codex", "paused": true, "unread": 0 }
+  ],
+  "threads": [
+    { "id": "thread-mark", "botId": "bot-mark", "title": "Campaign review", "running": false },
+    { "id": "thread-onb", "botId": "bot-onb", "title": "Welcome", "running": true }
+  ],
+  "messages": [
+    { "id": "m1", "threadId": "thread-mark", "role": "user", "text": "Review the campaign" },
+    { "id": "m2", "threadId": "thread-mark", "role": "assistant", "text": "I am on it." }
+  ]
+}

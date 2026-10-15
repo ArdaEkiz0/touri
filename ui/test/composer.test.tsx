@@ -1,0 +1,182 @@
+import { invoke } from "@tauri-apps/api/core"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { Bot, Run } from "@touri/contracts"
+import { useRef, useState } from "react"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import App from "../src/App"
+import { createMockApi } from "../src/api/mock"
+import { Composer } from "../src/components/Composer"
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), convertFileSrc: (path: string) => path }))
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: vi.fn().mockResolvedValue(vi.fn()) }),
+}))
+afterEach(() => {
+  Reflect.deleteProperty(window, "__TAURI_INTERNALS__")
+  vi.clearAllMocks()
+})
+
+const setup = ({
+  draft = "",
+  access = "workspace-write",
+  activeRun = null,
+  queuedCount = 0,
+  send = vi.fn().mockResolvedValue(undefined),
+}: {
+  draft?: string
+  access?: Bot["access"]
+  activeRun?: Run | null
+  queuedCount?: number
+  send?: ReturnType<typeof vi.fn>
+} = {}) => {
+  const api = createMockApi()
+  const bot = api.getState().bots[0]
+  if (!bot) throw new Error("Bot de QA ausente")
+  bot.access = access
+  bot.model = "gpt-6.1-sol"
+  const cancel = vi.fn().mockResolvedValue(undefined)
+  const model = vi.fn()
+  const permissions = vi.fn()
+  const Harness = () => {
+    const [text, setText] = useState(draft)
+    const input = useRef<HTMLTextAreaElement>(null)
+    return (
+      <Composer
+        bot={bot}
+        api={api}
+        threadId="thread-mark"
+        parentId="parent"
+        draft={text}
+        onDraft={setText}
+        inputRef={input}
+        activeRun={activeRun}
+        queuedCount={queuedCount}
+        onSend={send}
+        onCancel={cancel}
+        onOpenModel={model}
+        onOpenPermissions={permissions}
+      />
+    )
+  }
+  render(<Harness />)
+  return { api, send, cancel, model, permissions, box: screen.getByRole("textbox", { name: "Mensagem para mark" }) }
+}
+const run = { id: "active", status: "running" } as Run
+
+describe("composer island", () => {
+  it("disables empty input and opens the existing model and permission choices", () => {
+    const { model, permissions } = setup({ access: "read-only" })
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Escolher modelo: Codex · gpt-6.1-sol" }))
+    fireEvent.click(screen.getByRole("button", { name: "Permissões do bot: Somente leitura" }))
+    expect(model).toHaveBeenCalledOnce()
+    expect(permissions).toHaveBeenCalledOnce()
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Somente leitura")
+  })
+
+  it("shows the actual access level and queued plurals", () => {
+    setup({ access: "full", queuedCount: 2 })
+    expect(screen.getByRole("button", { name: "Permissões do bot: Acesso completo" })).toHaveAttribute(
+      "data-access",
+      "full",
+    )
+    expect(screen.getByRole("status")).toHaveTextContent("2 mensagens na fila")
+  })
+
+  it("keeps draft attention separate from runtime work (r7 step 67)", async () => {
+    const app = render(<App kernel={{ services: { api: createMockApi() } }} />)
+    const box = await screen.findByRole("textbox", { name: "Mensagem para mark" })
+    fireEvent.focus(box)
+    fireEvent.change(box, { target: { value: "Primeira linha\nSegunda linha com acentuação" } })
+    await waitFor(() =>
+      expect(app.container.querySelector(".chat-bot-chip [data-mascot-state]")).toHaveAttribute(
+        "data-mascot-state",
+        "listening",
+      ),
+    )
+    expect(app.container.querySelector('.bot-list [data-mascot-state="typing"]')).toBeNull()
+  })
+
+  it("stops the run when empty and offers queueing when a draft exists", async () => {
+    const { box, cancel, send } = setup({ activeRun: run })
+    fireEvent.click(screen.getByRole("button", { name: "Parar" }))
+    await waitFor(() => expect(cancel).toHaveBeenCalledWith("active"))
+    fireEvent.change(box, { target: { value: "Próxima tarefa" } })
+    fireEvent.click(screen.getByRole("button", { name: "Adicionar à fila" }))
+    await waitFor(() => expect(send).toHaveBeenCalledWith("Próxima tarefa", "parent", []))
+  })
+
+  it("preserves a newer draft and prevents duplicate sends while sending", async () => {
+    let resolve: (() => void) | undefined
+    const send = vi.fn(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    const { box } = setup({ draft: "Primeira mensagem", send })
+    fireEvent.keyDown(box, { key: "Enter" })
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(send).toHaveBeenCalledOnce()
+    fireEvent.change(box, { target: { value: "Rascunho seguinte" } })
+    await act(async () => resolve?.())
+    expect(box).toHaveValue("Rascunho seguinte")
+  })
+
+  it("preserves the draft on failure and allows retry", async () => {
+    const send = vi.fn().mockRejectedValueOnce(new Error("Sem conexão")).mockResolvedValueOnce(undefined)
+    const { box } = setup({ draft: "Não perder este texto", send })
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }))
+    await screen.findByRole("alert")
+    expect(box).toHaveValue("Não perder este texto")
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }))
+    await waitFor(() => expect(box).toHaveValue(""))
+    expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it("registers attachments, removes individual chips, and passes the remaining ids to send", async () => {
+    const { api, send } = setup({ draft: "Confira o plano" })
+    fireEvent.change(screen.getByLabelText("Anexar arquivos"), {
+      target: { files: [new File(["a"], "plano.md"), new File(["b"], "notas.md")] },
+    })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled())
+    fireEvent.click(screen.getByRole("button", { name: "Remover plano.md" }))
+    expect(screen.queryByText("plano.md")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }))
+    await waitFor(() => expect(send).toHaveBeenCalledWith("Confira o plano", "parent", ["attachment:/mock/notas.md"]))
+    expect(api.calls.filter((call) => call.route === "POST /attachments")).toHaveLength(2)
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Arquivos anexados" })).toBeNull())
+  })
+
+  it("supports attachments alone with a readable message", async () => {
+    const { send } = setup()
+    fireEvent.change(screen.getByLabelText("Anexar arquivos"), { target: { files: [new File(["a"], "plano.md")] } })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled())
+    fireEvent.click(screen.getByRole("button", { name: "Enviar" }))
+    await waitFor(() =>
+      expect(send).toHaveBeenCalledWith("Confira os arquivos anexados.", "parent", ["attachment:/mock/plano.md"]),
+    )
+  })
+
+  it("blocks sending after attachment failure until the failed file is removed", async () => {
+    const { api } = setup({ draft: "Texto seguro" })
+    vi.spyOn(api, "request").mockRejectedValueOnce(new Error("Arquivo indisponível"))
+    fireEvent.change(screen.getByLabelText("Anexar arquivos"), { target: { files: [new File(["a"], "plano.md")] } })
+    await screen.findByRole("alert")
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Remover plano.md" }))
+    expect(screen.getByRole("button", { name: "Enviar" })).toBeEnabled()
+  })
+
+  it("uses the WebView file chooser in the desktop shell", async () => {
+    Object.assign(window, { __TAURI_INTERNALS__: {} })
+    const { api } = setup()
+    const input = screen.getByLabelText("Anexar arquivos")
+    const clicked = vi.spyOn(input, "click")
+    fireEvent.click(screen.getByRole("button", { name: "Anexar arquivo" }))
+    expect(clicked).toHaveBeenCalledOnce()
+    fireEvent.change(input, { target: { files: [new File(["a"], "plano.md")] } })
+    await waitFor(() => expect(api.calls.some((call) => call.route === "POST /attachments")).toBe(true))
+    expect(invoke).not.toHaveBeenCalled()
+  })
+})

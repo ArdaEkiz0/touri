@@ -1,0 +1,139 @@
+import { Database, constants as sqliteFlags } from "bun:sqlite"
+import { dirname } from "node:path"
+import { prepareDatabaseFile } from "./files"
+import { prepareHistoryBackfill } from "./history-backfill"
+import { legacySourceRebuild } from "./legacySourceRebuild"
+import migrationSql from "./migrations/0001.sql" with { type: "text" }
+import notificationsSql from "./migrations/0002.sql" with { type: "text" }
+import avatarsSql from "./migrations/0003.sql" with { type: "text" }
+import machinesSql from "./migrations/0004.sql" with { type: "text" }
+import rolesSql from "./migrations/0005.sql" with { type: "text" }
+import mcpServersSql from "./migrations/0006.sql" with { type: "text" }
+import transcriptSql from "./migrations/0007.sql" with { type: "text" }
+import groupsSql from "./migrations/0008.sql" with { type: "text" }
+import cloudSql from "./migrations/0009.sql" with { type: "text" }
+import recoverySql from "./migrations/0010.sql" with { type: "text" }
+import reportsSql from "./migrations/0011.sql" with { type: "text" }
+import opencodeSql from "./migrations/0012.sql" with { type: "text" }
+import workRecoverySql from "./migrations/0013.sql" with { type: "text" }
+import legacySourceSql from "./migrations/0014.sql" with { type: "text" }
+import { applyUpgradeBaselines } from "./upgradeBaselines"
+
+export const SCHEMA_VERSION = 14
+
+const FREE_PAGE_RATIO_LIMIT = 0.2
+
+const reclaimRebuiltPages = (database: Database): void => {
+  const free = (database.query("PRAGMA freelist_count").get() as { freelist_count: number }).freelist_count
+  const total = (database.query("PRAGMA page_count").get() as { page_count: number }).page_count
+  if (total > 0 && free / total > FREE_PAGE_RATIO_LIMIT) database.exec("VACUUM")
+}
+
+export const openDatabase = ({ filename }: { filename: string }): Database => {
+  const databasePath = prepareDatabaseFile({ root: dirname(filename), path: filename })
+  const database = new Database(
+    databasePath,
+    sqliteFlags.SQLITE_OPEN_READWRITE | sqliteFlags.SQLITE_OPEN_CREATE | sqliteFlags.SQLITE_OPEN_NOFOLLOW,
+  )
+  database.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")
+  database.exec(migrationSql)
+  database.exec(notificationsSql)
+  database.transaction(() => {
+    const migrated = database.query("SELECT value FROM schema_meta WHERE key = 'avatar_identity_version'").get()
+    if (!migrated) database.exec(avatarsSql)
+  })()
+  database.transaction(() => {
+    const columns = database.query("PRAGMA table_info(bots)").all() as Array<{ name: string }>
+    if (!columns.some((column) => column.name === "machine")) database.exec(machinesSql)
+  })()
+  database.transaction(() => {
+    const columns = database.query("PRAGMA table_info(bots)").all() as Array<{ name: string }>
+    if (!columns.some((column) => column.name === "role_line")) database.exec(rolesSql)
+    database.exec(
+      "INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('bot_role_version', '1'); UPDATE schema_meta SET value = '5' WHERE key = 'schema_version';",
+    )
+  })()
+  database.exec(mcpServersSql)
+  database.transaction(() => {
+    const migrated = database.query("SELECT value FROM schema_meta WHERE key = 'transcript_version'").get()
+    if (!migrated) {
+      // 0007 is a shipped artifact. Apply its DDL verbatim, but defer its two
+      // bulk data statements to the resumable worker. Do not rewrite the asset.
+      const dataStart = transcriptSql.indexOf("WITH ordered AS (")
+      const viewStart = transcriptSql.indexOf("CREATE VIEW transcript_message_events AS")
+      const entriesStart = transcriptSql.indexOf(
+        "INSERT INTO transcript_entries(thread_id, seq, generation, event_json, at)",
+      )
+      const triggersStart = transcriptSql.indexOf("CREATE TRIGGER messages_transcript_insert")
+      database.exec(transcriptSql.slice(0, dataStart))
+      database.exec(transcriptSql.slice(viewStart, entriesStart))
+      database.exec(transcriptSql.slice(triggersStart))
+      prepareHistoryBackfill(database)
+    }
+    database.exec("UPDATE schema_meta SET value = '7' WHERE key = 'schema_version'")
+  })()
+  database.transaction(() => {
+    if (!database.query("SELECT value FROM schema_meta WHERE key = 'groups_version'").get()) database.exec(groupsSql)
+    database.exec("UPDATE schema_meta SET value = '8' WHERE key = 'schema_version'")
+  })()
+  database.transaction(() => {
+    const columns = database.query("PRAGMA table_info(bots)").all() as Array<{ name: string }>
+    if (!columns.some((column) => column.name === "cloud_target")) database.exec(cloudSql)
+    database.exec("UPDATE schema_meta SET value = '9' WHERE key = 'schema_version'")
+  })()
+  database.transaction(() => {
+    if (!database.query("SELECT value FROM schema_meta WHERE key = 'transcript_recovery_version'").get())
+      database.exec(recoverySql)
+    database.exec("UPDATE schema_meta SET value = '10' WHERE key = 'schema_version'")
+  })()
+  database.transaction(() => database.exec(reportsSql))()
+  // Disabling FKs inside a transaction is ineffective. Rebuild without renaming
+  // the original tables so inbound references continue to point to their names.
+  database.exec("PRAGMA foreign_keys = OFF")
+  try {
+    database.transaction(() => {
+      if (!database.query("SELECT value FROM schema_meta WHERE key = 'opencode_provider_version'").get()) {
+        const objects = database
+          .query(
+            "SELECT name, sql FROM sqlite_schema WHERE tbl_name IN ('bots','provider_sessions') AND type IN ('index','trigger') AND sql IS NOT NULL",
+          )
+          .all() as Array<{ name: string; sql: string }>
+        const counts = ["bots", "provider_sessions"].map((table) => ({
+          table,
+          count: (database.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n,
+        }))
+        database.exec(opencodeSql)
+        for (const { table, count } of counts)
+          if ((database.query(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n !== count)
+            throw new Error("OpenCode migration: row count changed")
+        for (const object of objects) {
+          if (!database.query("SELECT 1 FROM sqlite_schema WHERE name = ?").get(object.name)) database.exec(object.sql)
+        }
+        if (database.query("PRAGMA foreign_key_check").all().length)
+          throw new Error("OpenCode migration: invalid foreign keys")
+      }
+      database.exec("UPDATE schema_meta SET value = '12' WHERE key = 'schema_version'")
+    })()
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON")
+  }
+  database.transaction(() => database.exec(workRecoverySql))()
+  database.exec("PRAGMA foreign_keys = OFF")
+  const rebuilt = (() => {
+    try {
+      return database.transaction(() => {
+        const result = legacySourceRebuild({ database })
+        if (!result.success) throw new Error(`Legacy source migration: ${result.error}`)
+        database.exec(legacySourceSql)
+        if (database.query("PRAGMA foreign_key_check").all().length)
+          throw new Error("Legacy source migration: invalid foreign keys")
+        return result.rebuilt
+      })()
+    } finally {
+      database.exec("PRAGMA foreign_keys = ON")
+    }
+  })()
+  if (rebuilt.length) reclaimRebuiltPages(database)
+  applyUpgradeBaselines({ database })
+  return database
+}

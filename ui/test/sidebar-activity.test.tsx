@@ -1,0 +1,327 @@
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import type { Bot, Message, Run, Thread } from "@touri/contracts"
+import { afterEach, expect, it, vi } from "vitest"
+import { createMockApi } from "../src/api/mock"
+import { computeBotActivity, holdBotPositions, orderBotsByActivity } from "../src/botActivity"
+import { Sidebar } from "../src/components/BotSidebar"
+import { SettingsModal } from "../src/components/Modals"
+import { readWorkspaceState, saveWorkspaceState } from "../src/workspaceState"
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  delete document.documentElement.dataset.motion
+})
+
+const T0 = 1_000_000
+
+const makeBot = (base: Bot, id: string, name: string, sortOrder: number): Bot => ({
+  ...base,
+  id,
+  name,
+  sortOrder,
+  paused: false,
+  avatarSeed: name,
+})
+
+const makeThread = (base: Thread, id: string, botId: string, patch: Partial<Thread> = {}): Thread => ({
+  ...base,
+  id,
+  botId,
+  title: `Conversa ${botId}`,
+  unread: 0,
+  createdAt: T0,
+  updatedAt: T0,
+  ...patch,
+})
+
+const makeMessage = (base: Message, id: string, threadId: string, patch: Partial<Message> = {}): Message => ({
+  ...base,
+  id,
+  threadId,
+  role: "assistant",
+  status: "complete",
+  text: `Resposta ${id}`,
+  parts: [{ type: "text", text: `Resposta ${id}` }],
+  createdAt: T0,
+  updatedAt: T0,
+  ...patch,
+})
+
+const run = (id: string, botId: string, threadId: string, status: Run["status"] = "running"): Run => ({
+  id,
+  botId,
+  threadId,
+  provider: "codex",
+  trigger: "user",
+  status,
+  routineRunId: null,
+  requestMessageId: null,
+  replyMessageId: null,
+  externalTurnId: null,
+  errorClass: null,
+  errorMessage: null,
+  usage: null,
+  queuedAt: T0,
+  startedAt: T0 + 50,
+  finishedAt: null,
+})
+
+/** Four bots in manual order alfa, beta, gama, delta; each with one idle conversation. */
+const fixture = () => {
+  const state = createMockApi().getState()
+  const [botBase] = state.bots
+  const [threadBase] = state.threads
+  const [messageBase] = state.messages
+  if (!botBase || !threadBase || !messageBase) throw new Error("Fixture indisponível")
+  const bots = ["alfa", "beta", "gama", "delta"].map((name, index) => makeBot(botBase, `bot-${name}`, name, index))
+  const threads = bots.map((bot) => makeThread(threadBase, `thread-${bot.name}`, bot.id))
+  return { bots, threads, messageBase }
+}
+
+const pendingApproval = (base: Message, threadId: string, at: number): Message =>
+  makeMessage(base, `approval-${threadId}`, threadId, {
+    kind: "approval",
+    createdAt: at,
+    updatedAt: at,
+    parts: [
+      {
+        type: "approval",
+        approvalId: `approval-${threadId}`,
+        request: "permission",
+        detail: "Executar comando",
+        decision: "pending",
+        allowStanding: false,
+      },
+    ],
+  })
+
+type SidebarOverrides = Partial<Parameters<typeof Sidebar>[0]>
+
+const renderSidebar = (overrides: SidebarOverrides & { bots: Array<Bot>; threads: Array<Thread> }) => {
+  const props: Parameters<typeof Sidebar>[0] = {
+    showFakeTrafficLights: false,
+    routineCount: 0,
+    messages: [],
+    runs: [],
+    selectedBotId: null,
+    selectedThreadId: null,
+    section: "bots",
+    touriPage: "cron",
+    onSection: () => undefined,
+    onTouriPage: () => undefined,
+    onSelect: () => undefined,
+    onSelectThread: () => undefined,
+    onReviewApproval: () => undefined,
+    onNewThread: () => undefined,
+    onNewBot: () => undefined,
+    onBotSettings: () => undefined,
+    onSettings: () => undefined,
+    onDoctor: () => undefined,
+    onSearch: () => undefined,
+    notifications: [],
+    onNotificationsOpen: () => undefined,
+    notificationActions: {
+      open: () => undefined,
+      dismiss: async () => undefined,
+      dismissAll: async () => undefined,
+      respond: async () => undefined,
+      reply: async () => undefined,
+    },
+    ...overrides,
+  }
+  const view = render(<Sidebar {...props} />)
+  return {
+    ...view,
+    update: (patch: SidebarOverrides) => view.rerender(<Sidebar {...props} {...patch} />),
+  }
+}
+
+const order = (): Array<string> =>
+  Array.from(document.querySelectorAll<HTMLElement>("[data-bot-entry]")).map((entry) => entry.dataset.botEntry ?? "")
+
+const entry = (botId: string): HTMLElement => {
+  const element = document.querySelector<HTMLElement>(`[data-bot-entry="${botId}"]`)
+  if (!element) throw new Error(`Bot ${botId} ausente`)
+  return element
+}
+
+it("orders needs-you, then working, then unread, then the manual order, newest first inside a tier", () => {
+  const { bots, threads, messageBase } = fixture()
+  const unreadThreads = threads.map((thread) =>
+    thread.botId === "bot-alfa" || thread.botId === "bot-beta" ? { ...thread, unread: 1 } : thread,
+  )
+  const activity = computeBotActivity({
+    bots,
+    threads: unreadThreads.map((thread) => (thread.botId === "bot-beta" ? { ...thread, updatedAt: T0 + 900 } : thread)),
+    messages: [pendingApproval(messageBase, "thread-delta", T0 + 10)],
+    runs: [run("run-gama", "bot-gama", "thread-gama"), run("run-old", "bot-alfa", "thread-alfa", "succeeded")],
+    attention: [],
+    notifications: [],
+    lastViewed: Object.fromEntries(bots.map((bot) => [bot.id, T0 + 10_000])),
+    viewingBotId: null,
+  })
+  expect(activity.get("bot-delta")?.kind).toBe("needs-you")
+  expect(activity.get("bot-gama")?.kind).toBe("working")
+  expect(activity.get("bot-alfa")?.kind).toBe("new")
+  expect(orderBotsByActivity({ botIds: bots.map((bot) => bot.id), activity })).toEqual([
+    "bot-delta",
+    "bot-gama",
+    "bot-beta",
+    "bot-alfa",
+  ])
+})
+
+it("an answered approval or the bot on screen no longer floats; replies after the last view count as news", () => {
+  const { bots, threads, messageBase } = fixture()
+  const answered = pendingApproval(messageBase, "thread-delta", T0)
+  const approved: Message = {
+    ...answered,
+    parts: answered.parts.map((part) => (part.type === "approval" ? { ...part, decision: "approved" } : part)),
+  }
+  const reply = makeMessage(messageBase, "reply-gama", "thread-gama", { updatedAt: T0 + 500 })
+  const activity = (viewingBotId: string | null) =>
+    computeBotActivity({
+      bots,
+      threads,
+      messages: [approved, reply],
+      runs: [],
+      attention: [],
+      notifications: [],
+      lastViewed: Object.fromEntries(bots.map((bot) => [bot.id, T0 + 100])),
+      viewingBotId,
+    })
+  expect(activity(null).get("bot-delta")?.kind).toBeNull()
+  expect(activity(null).get("bot-gama")?.kind).toBe("new")
+  expect(activity("bot-gama").get("bot-gama")?.kind).toBeNull()
+  expect(holdBotPositions({ desired: ["b", "a", "c"], previous: ["a", "b", "c"], held: new Set(["a"]) })).toEqual([
+    "a",
+    "b",
+    "c",
+  ])
+})
+
+it("floats bots with updates to the top by default and labels each indicator", () => {
+  const { bots, threads, messageBase } = fixture()
+  renderSidebar({
+    bots,
+    threads: threads.map((thread) => (thread.botId === "bot-beta" ? { ...thread, unread: 2 } : thread)),
+    messages: [pendingApproval(messageBase, "thread-delta", T0 + 10)],
+    runs: [run("run-gama", "bot-gama", "thread-gama")],
+  })
+  expect(order()).toEqual(["bot-delta", "bot-gama", "bot-beta", "bot-alfa"])
+  expect(screen.getByRole("img", { name: "delta: precisa de você" })).toBeVisible()
+  expect(screen.getByRole("img", { name: "gama: trabalhando" })).toBeVisible()
+  expect(screen.getByRole("img", { name: "beta: novidades" })).toBeVisible()
+  expect(within(entry("bot-alfa")).queryByRole("img", { name: /alfa:/ })).toBeNull()
+})
+
+it("with the setting off, keeps the manual order but still shows the indicators", () => {
+  const { bots, threads, messageBase } = fixture()
+  renderSidebar({
+    bots,
+    threads,
+    floatUpdates: false,
+    messages: [pendingApproval(messageBase, "thread-delta", T0 + 10)],
+    runs: [run("run-gama", "bot-gama", "thread-gama")],
+  })
+  expect(order()).toEqual(["bot-alfa", "bot-beta", "bot-gama", "bot-delta"])
+  expect(screen.getByRole("img", { name: "delta: precisa de você" })).toBeVisible()
+  expect(screen.getByRole("img", { name: "gama: trabalhando" })).toBeVisible()
+})
+
+it("does not move a hovered or keyboard-focused bot until the pointer or focus leaves", () => {
+  const { bots, threads } = fixture()
+  const view = renderSidebar({ bots, threads })
+  expect(order()).toEqual(["bot-alfa", "bot-beta", "bot-gama", "bot-delta"])
+  fireEvent.mouseEnter(entry("bot-alfa"))
+  view.update({ runs: [run("run-gama", "bot-gama", "thread-gama")] })
+  expect(order()).toEqual(["bot-alfa", "bot-gama", "bot-beta", "bot-delta"])
+  fireEvent.mouseLeave(entry("bot-alfa"))
+  expect(order()).toEqual(["bot-gama", "bot-alfa", "bot-beta", "bot-delta"])
+
+  const button = within(entry("bot-alfa")).getAllByRole("button")[0]
+  if (!button) throw new Error("Botão ausente")
+  act(() => button.focus())
+  view.update({ runs: [run("run-gama", "bot-gama", "thread-gama"), run("run-beta", "bot-beta", "thread-beta")] })
+  expect(order().indexOf("bot-alfa")).toBe(1)
+  act(() => button.blur())
+  expect(order()).toEqual(["bot-beta", "bot-gama", "bot-alfa", "bot-delta"])
+})
+
+it("keeps the selected bot in place while the user types in its composer", () => {
+  const { bots, threads } = fixture()
+  const composer = document.createElement("div")
+  composer.className = "composer"
+  const textarea = document.createElement("textarea")
+  composer.append(textarea)
+  document.body.append(composer)
+  try {
+    const view = renderSidebar({ bots, threads, selectedBotId: "bot-alfa", selectedThreadId: "thread-alfa" })
+    act(() => textarea.focus())
+    view.update({ runs: [run("run-delta", "bot-delta", "thread-delta")] })
+    expect(order()).toEqual(["bot-alfa", "bot-delta", "bot-beta", "bot-gama"])
+    act(() => textarea.blur())
+    expect(order()).toEqual(["bot-delta", "bot-alfa", "bot-beta", "bot-gama"])
+  } finally {
+    composer.remove()
+  }
+})
+
+it("marks a bot read once viewed and persists the last-viewed time", () => {
+  const { bots, threads, messageBase } = fixture()
+  saveWorkspaceState({ lastViewedByBot: Object.fromEntries(bots.map((bot) => [bot.id, T0 + 100])) })
+  const reply = makeMessage(messageBase, "reply-beta", "thread-beta", { updatedAt: T0 + 500 })
+  const view = renderSidebar({ bots, threads, messages: [reply] })
+  expect(screen.getByRole("img", { name: "beta: novidades" })).toBeVisible()
+  expect(order()[0]).toBe("bot-beta")
+  view.update({ selectedBotId: "bot-beta", selectedThreadId: "thread-beta" })
+  expect(screen.queryByRole("img", { name: "beta: novidades" })).toBeNull()
+  expect(readWorkspaceState().lastViewedByBot?.["bot-beta"]).toBeGreaterThanOrEqual(T0 + 500)
+  view.update({ selectedBotId: "bot-alfa", selectedThreadId: "thread-alfa" })
+  expect(screen.queryByRole("img", { name: "beta: novidades" })).toBeNull()
+})
+
+const positionByIndex = () =>
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const index = this.parentElement ? Array.from(this.parentElement.children).indexOf(this) : 0
+    return {
+      top: index * 50,
+      bottom: index * 50 + 50,
+      left: 0,
+      right: 200,
+      width: 200,
+      height: 50,
+      x: 0,
+      y: index * 50,
+      toJSON: () => ({}),
+    }
+  })
+
+it("animates reordering with FLIP, and skips the animation when motion is reduced", () => {
+  const { bots, threads } = fixture()
+  positionByIndex()
+  const view = renderSidebar({ bots, threads })
+  view.update({ runs: [run("run-delta", "bot-delta", "thread-delta")] })
+  expect(order()[0]).toBe("bot-delta")
+  expect(entry("bot-delta").style.transform).toBe("translateY(150px)")
+  expect(entry("bot-alfa").style.transform).toBe("translateY(-50px)")
+  cleanup()
+
+  document.documentElement.dataset.motion = "reduce"
+  const reduced = renderSidebar({ bots, threads })
+  reduced.update({ runs: [run("run-delta", "bot-delta", "thread-delta")] })
+  expect(order()[0]).toBe("bot-delta")
+  expect(entry("bot-delta").style.transform).toBe("")
+  expect(entry("bot-delta").dataset.reordering).toBeUndefined()
+})
+
+it("the setting is on by default and saving it off persists through the settings API", async () => {
+  const onSave = vi.fn(async () => undefined)
+  render(<SettingsModal settings={null} onClose={() => undefined} onSave={onSave} />)
+  const toggle = screen.getByRole("switch", { name: "Mover bots com novidades para o topo" })
+  expect(toggle).toBeChecked()
+  fireEvent.click(toggle)
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Salvar preferências" })))
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ sidebarFloatUpdates: false }))
+})

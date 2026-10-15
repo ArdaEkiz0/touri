@@ -1,0 +1,159 @@
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import type { ApiRoutes, ToolCallPart } from "@touri/contracts"
+import { afterEach, expect, it, vi } from "vitest"
+import type { ApiRequest } from "../src/api/client"
+import { createMockApi } from "../src/api/mock"
+import { ToolCallCard } from "../src/components/ToolCallCard"
+import { DoctorStorage } from "../src/features/doctor/DoctorStorage"
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+const part: ToolCallPart = {
+  type: "tool_call",
+  callId: "call",
+  tool: "computer.screenshot",
+  summary: "Captura",
+  inputJson: "{}",
+  outputJson: null,
+  outputAttachmentId: "blob",
+  outputBytes: 80_000,
+  ok: true,
+  resolution: "succeeded",
+}
+
+it("loads file-backed tool results only on demand through authenticated attachment requests", async () => {
+  const base = createMockApi()
+  const output = vi.fn(async () => ({
+    text: async () => JSON.stringify({ dataBase64: "aW1hZ2U=", mime: "image/png" }),
+  }))
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /attachments/:id" ? (output() as never) : base.request(route, input, path)
+  render(<ToolCallCard part={part} api={{ ...base, request }} />)
+  expect(output).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole("button", { name: "Abrir resultado completo" }))
+  expect(await screen.findByRole("button", { name: "Baixar imagem" })).toBeVisible()
+  expect(output).toHaveBeenCalledOnce()
+})
+
+it("retries attachment errors and clears old output when a newer reference arrives", async () => {
+  const base = createMockApi()
+  const output = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("offline"))
+    .mockResolvedValue({ text: async () => "Resposta completa" })
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /attachments/:id" ? output() : base.request(route, input, path)
+  const api = { ...base, request }
+  const view = render(<ToolCallCard part={part} api={api} />)
+  fireEvent.click(screen.getByRole("button", { name: "Abrir resultado completo" }))
+  expect(await screen.findByText(/Não foi possível abrir o resultado/)).toBeVisible()
+  fireEvent.click(screen.getByRole("button", { name: "Abrir resultado completo" }))
+  expect(await screen.findByText("Resposta completa")).toBeInTheDocument()
+  view.rerender(<ToolCallCard part={{ ...part, outputAttachmentId: "new" }} api={api} />)
+  expect(screen.queryByText("Resposta completa")).not.toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Abrir resultado completo" })).toBeEnabled()
+})
+
+it("Doctor reports storage sources, polls chunk progress, and requests VACUUM only when selected", async () => {
+  vi.useFakeTimers()
+  const base = createMockApi()
+  const report: ApiRoutes["GET /doctor/storage"]["res"] = {
+    storage: {
+      databaseBytes: 48 * 1024 ** 2,
+      walBytes: 0,
+      reusableBytes: 1024 ** 2,
+      messageTextBytes: 1024 ** 2,
+      messagePartsBytes: 2 * 1024 ** 2,
+      transcriptBytes: 3 * 1024 ** 2,
+      eventBytes: 4 * 1024 ** 2,
+      attachmentBytes: 5 * 1024 ** 2,
+      turns: 10,
+    },
+    maintenance: { running: false, processed: 0, total: 100 },
+  }
+  const compact = vi.fn((input: unknown) => {
+    report.maintenance = { running: true, processed: 50, total: 100 }
+    return { maintenance: report.maintenance, input }
+  })
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /doctor/storage"
+      ? (structuredClone(report) as never)
+      : route === "POST /doctor/storage/compact"
+        ? (compact(input) as never)
+        : base.request(route, input, path)
+  await act(async () => render(<DoctorStorage api={{ ...base, request }} />))
+  expect(screen.getByText(/Banco: 48 MB/)).toBeVisible()
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compactar dados" })))
+  expect(compact).toHaveBeenLastCalledWith({ vacuum: false })
+  expect(screen.getByRole("button", { name: "Compactando dados…" })).toBeDisabled()
+  expect(screen.getByRole("status")).toHaveTextContent("50 de 100")
+  report.maintenance = { running: false, processed: 100, total: 100 }
+  await act(async () => vi.advanceTimersByTimeAsync(1000))
+  fireEvent.click(screen.getByRole("checkbox", { name: "Recuperar espaço do banco (VACUUM)" }))
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compactar dados" })))
+  expect(compact).toHaveBeenLastCalledWith({ vacuum: true })
+})
+
+it("Doctor lets the user retry a rejected compaction", async () => {
+  const base = createMockApi()
+  const request: ApiRequest = async (route, input, path) => {
+    if (route === "POST /doctor/storage/compact") throw new Error("busy")
+    return base.request(route, input, path)
+  }
+  render(<DoctorStorage api={{ ...base, request }} />)
+  await waitFor(() => expect(screen.getByText(/Banco:/)).toBeVisible())
+  fireEvent.click(screen.getByRole("button", { name: "Compactar dados" }))
+  expect(await screen.findByText(/Não foi possível iniciar a compactação/)).toBeVisible()
+  expect(screen.getByRole("button", { name: "Compactar dados" })).toBeEnabled()
+})
+
+it("renders a file-backed diff literally after loading its attachment", async () => {
+  const base = createMockApi()
+  const diff = "diff --git a/README.md b/README.md\n@@ -1 +1 @@\n+```js\n+<b>literal</b>\n+``````"
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /attachments/:id" ? ({ text: async () => diff } as never) : base.request(route, input, path)
+  const view = render(
+    <ToolCallCard
+      api={{ ...base, request }}
+      part={{
+        type: "file_change",
+        callId: "edit",
+        paths: ["README.md"],
+        diff: null,
+        outputAttachmentId: "diff-blob",
+        resolution: "succeeded",
+      }}
+    />,
+  )
+  fireEvent.click(screen.getByRole("button", { name: "Abrir resultado completo" }))
+  await waitFor(() => expect(view.container.querySelector(".tool-output pre code")?.textContent).toBe(diff))
+  expect(view.container.querySelector("b")).toBeNull()
+})
+
+it("keeps browser page context and host screenshot thumbnails when output is stored as an attachment", async () => {
+  const base = createMockApi()
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /attachments/:id"
+      ? ({
+          text: async () =>
+            JSON.stringify({
+              structured: {
+                title: "Página preservada",
+                url: "https://example.org/pagina",
+                dataUrl: "data:image/png;base64,aW1hZ2U=",
+              },
+              content: [],
+            }),
+        } as never)
+      : base.request(route, input, path)
+  render(<ToolCallCard part={{ ...part, tool: "mcp__touri__browser_screenshot" }} api={{ ...base, request }} />)
+  expect(screen.getByRole("article")).toHaveAccessibleName("Ferramenta · Captura")
+  expect(screen.queryByText("Página preservada")).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole("button", { name: "Abrir resultado completo" }))
+  expect(await screen.findByText("Página preservada")).toBeVisible()
+  expect(screen.getByText("https://example.org/pagina")).toBeVisible()
+  expect(screen.getByRole("button", { name: "Baixar imagem" })).toBeVisible()
+  expect(screen.queryByText("Resultado")).toBeNull()
+})

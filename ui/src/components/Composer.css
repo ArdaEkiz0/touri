@@ -1,0 +1,310 @@
+/* r8 composer: island, attachments, controls and actionable notices. */
+.composer.composer-island {
+  width: min(900px, calc(100% - 48px));
+  gap: var(--space-8);
+  margin: var(--space-8) auto var(--space-20);
+  padding: var(--space-12);
+  border-color: var(--border-default);
+  border-radius: var(--radius-22);
+  box-shadow: var(--elevation-card);
+}
+.composer.composer-island:focus-within {
+  border-color: var(--border-focus);
+  box-shadow:
+    0 0 0 2px var(--focus-soft),
+    var(--elevation-card);
+}
+.composer-island textarea {
+  min-height: 38px;
+  max-height: 190px;
+  padding: var(--space-6) var(--space-4);
+  font-family: var(--font-body);
+  font-size: var(--type-15);
+  line-height: var(--leading-body);
+  transition: height var(--duration-standard) var(--ease-standard);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-chat) transparent;
+}
+.composer-island .composer-footer {
+  gap: var(--space-8);
+  min-width: 0;
+  min-height: 34px;
+}
+.composer-island .composer-tools-left {
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-8);
+}
+.composer-island .composer-icon,
+.composer-island .composer-send {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+.composer-island .composer-icon {
+  border-radius: var(--radius-10);
+}
+.composer-island .composer-icon:focus-visible,
+.composer-island .composer-send:focus-visible,
+.composer-island .composer-stop:focus-visible,
+.composer-island .composer-model:focus-visible,
+.composer-island .attachment-chip button:focus-visible,
+.composer-notice button:focus-visible {
+  outline: 2px solid var(--accent-info);
+  outline-offset: 2px;
+}
+.composer-island .composer-model {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  min-width: 0;
+  max-width: 280px;
+  height: 32px;
+  padding: 0 var(--space-10);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.composer-island .composer-model:hover {
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+.composer-provider {
+  flex-shrink: 0;
+  font-weight: var(--weight-medium);
+}
+.composer-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.composer-permissions {
+  position: relative;
+  flex-shrink: 0;
+}
+.composer-island .composer-shield[data-access="full"] {
+  color: var(--accent-warning);
+}
+.composer-tooltip {
+  position: absolute;
+  z-index: 20;
+  bottom: calc(100% + 8px);
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 240px;
+  padding: var(--space-10) var(--space-12);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-10);
+  background: var(--surface-panel);
+  box-shadow: var(--elevation-popover);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.composer-tooltip strong {
+  color: var(--text-primary);
+}
+.composer-permissions:hover .composer-tooltip,
+.composer-permissions:focus-within .composer-tooltip {
+  opacity: 1;
+  visibility: visible;
+}
+.composer-island .composer-hint {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+}
+.composer-hint kbd {
+  font: inherit;
+}
+.composer-island .composer-actions {
+  flex-shrink: 0;
+  gap: var(--space-8);
+}
+.composer-island .composer-stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  height: 34px;
+  padding: 0 var(--space-10);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+}
+.composer-island .composer-stop:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-active);
+}
+.composer-island .attachment-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: 0;
+  padding: 0 var(--space-4);
+  list-style: none;
+}
+.composer-island .attachment-chip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  max-width: 100%;
+  padding: var(--space-4) var(--space-6) var(--space-4) var(--space-8);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-8);
+  background: var(--surface-tool);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.attachment-chip > svg {
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+}
+.attachment-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attachment-state {
+  flex-shrink: 0;
+  font-size: var(--type-11);
+}
+.attachment-chip[data-status="failed"] {
+  color: var(--text-danger);
+  border-color: var(--border-error);
+}
+.composer-island .attachment-chip button {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-6);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-16);
+}
+.composer-island .attachment-chip button:hover {
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+.composer-status {
+  padding: 0 var(--space-4);
+  color: var(--text-secondary);
+  font-size: var(--type-11);
+}
+.composer-status:empty {
+  display: none;
+}
+.composer-error {
+  display: flex;
+  align-items: start;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-8);
+  background: var(--surface-notice);
+  color: var(--text-notice);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+  overflow-wrap: anywhere;
+}
+.composer-error button {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--type-16);
+}
+.composer-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  width: min(900px, calc(100% - 48px));
+  flex: 0 0 auto;
+  margin: var(--space-12) auto 0;
+  padding: var(--space-16);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-16);
+  background: var(--surface-panel);
+}
+.composer-notice-copy {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--type-13);
+  line-height: var(--leading-body);
+}
+.composer-notice-copy strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+.composer-notice-copy p {
+  margin: var(--space-4) 0 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.composer-notice > button,
+.composer-notice > .machine-service-action {
+  flex-shrink: 0;
+}
+.composer-notice button {
+  border-radius: var(--radius-pill);
+}
+@media (max-width: 1200px) {
+  .composer-island .composer-hint {
+    display: none;
+  }
+}
+@media (max-width: 900px) {
+  .composer.composer-island,
+  .composer-notice {
+    width: calc(100% - 24px);
+  }
+  .composer-notice {
+    flex-wrap: wrap;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .composer-island textarea {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .composer.composer-island,
+  .composer-notice,
+  .composer-island .composer-model,
+  .composer-island .composer-send,
+  .composer-island .composer-stop,
+  .composer-island .attachment-chip {
+    border: 1px solid ButtonText;
+  }
+}
+/* End r8 composer. */
+
+.composer-island[data-dragging] {
+  position: relative;
+}
+.composer-island .composer-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent, currentColor);
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--surface, canvas) 88%, transparent);
+  font-size: var(--type-15);
+  font-weight: 600;
+  pointer-events: none;
+}

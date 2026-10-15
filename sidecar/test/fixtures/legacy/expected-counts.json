@@ -1,0 +1,12 @@
+{
+  "bots": 3,
+  "threads": 5,
+  "messages": 14,
+  "messageKinds": { "text": 8, "activity": 1, "digest": 1, "routine.run": 1, "compaction": 1, "options": 2 },
+  "routines": 2,
+  "routineRuns": 1,
+  "attachments": 2,
+  "outsideAttachmentPaths": 1,
+  "codexSessions": 1,
+  "credentialFiles": ["config.json", "sessions.json", "hook-tokens/active"]
+}

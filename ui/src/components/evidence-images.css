@@ -1,0 +1,92 @@
+.evidence-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+@media (min-width: 700px) {
+  .evidence-gallery {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.evidence-image {
+  margin: 0;
+  min-width: 0;
+}
+.evidence-thumbnail {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border-default);
+  background: var(--surface-panel);
+  cursor: zoom-in;
+}
+.evidence-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.evidence-thumbnail span {
+  display: block;
+  padding: 12px;
+  font-size: 12px;
+}
+.evidence-image figcaption {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+}
+.evidence-lightbox {
+  width: min(1200px, 95vw);
+  height: 90vh;
+  max-width: 95vw;
+  max-height: 95vh;
+  padding: 16px;
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+}
+.evidence-lightbox[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.evidence-lightbox::backdrop {
+  background: rgb(0 0 0 / 75%);
+}
+.evidence-lightbox header,
+.evidence-lightbox nav {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.evidence-lightbox header {
+  justify-content: space-between;
+}
+.evidence-lightbox button,
+.evidence-lightbox a {
+  padding: 6px 10px;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.evidence-stage {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+.evidence-stage img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  user-select: none;
+}

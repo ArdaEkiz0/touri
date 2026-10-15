@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>touri — Cron</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#0b0b0b;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Helvetica Neue",sans-serif;color:#f5f5f7}
+a{color:#f5f5f7;text-decoration:none}a:hover{color:#ffffff}
+button{font-family:inherit}
+@keyframes tc-pulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes tc-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.tc-live{animation:tc-pulse 1.2s ease-in-out infinite}
+.tc-list>div{animation:tc-in .35s ease-out both}
+.tc-row:hover{background:#232325}
+@media (prefers-reduced-motion: reduce){.tc-live,.tc-list>div{animation:none}}
+</style>
+</helmet>
+<div style="width: 100%; height: 900px; display: flex; background: #0b0b0b; color: #f5f5f7; overflow: hidden">
+
+<aside style="width: 320px; flex-shrink: 0; background: #1c1c1e; display: flex; flex-direction: column; border-right: 1px solid #2c2c2e">
+<div style="height: 44px; display: flex; align-items: center; padding: 0 16px; gap: 8px">
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #ff5f57"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #febc2e"></span>
+<span style="width: 12px; height: 12px; border-radius: 50%; background: #28c840"></span>
+</div>
+<div role="tablist" aria-label="Seções" style="margin: 2px 12px 10px; padding: 3px; border-radius: 10px; background: #2c2c2e; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px">
+<a role="tab" href="#" style="height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; color: #ffffff; background: #48484a">
+<img src="/_blob/b219242f58f382004b32bc99a06a60b7" alt="" style="width: 20px; height: 20px; image-rendering: pixelated">
+<span>touri</span>
+</a>
+<a role="tab" href="Main.dc.html" style="height: 34px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 600; color: #a1a1a6">
+<span>Bots</span>
+<span style="font-size: 11px; padding: 1px 6px; border-radius: 999px; background: #0a84ff; color: #ffffff">2</span>
+</a>
+</div>
+<nav aria-label="touri" style="padding: 4px 8px; display: flex; flex-direction: column; gap: 2px">
+<sc-for list="{{nav}}" as="n" hint-placeholder-count="3">
+<a class="tc-row" href="#" style="{{n.style}}">
+<span style="width: 30px; height: 30px; border-radius: 8px; background: #2c2c2e; display: flex; align-items: center; justify-content: center; color: #e5e5ea">
+<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.icon}}"/></svg>
+</span>
+<span style="flex: 1; display: flex; flex-direction: column; gap: 1px">
+<span style="font-size: 14px; font-weight: 600">{{n.label}}</span>
+<span style="font-size: 12px; color: #a1a1a6">{{n.hint}}</span>
+</span>
+<span style="font-size: 12px; color: #a1a1a6">{{n.count}}</span>
+</a>
+</sc-for>
+</nav>
+<div style="flex: 1"></div>
+<div style="height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-top: 1px solid #2c2c2e">
+<div style="display: flex; align-items: center; gap: 10px">
+<span style="width: 30px; height: 30px; border-radius: 50%; background: #3a3a3c; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600">T</span>
+<span style="font-size: 14px">Você</span>
+</div>
+<div style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a1a1a6">
+<span style="width: 8px; height: 8px; border-radius: 50%; background: #30d158"></span>
+<span>Local · grátis</span>
+</div>
+</div>
+</aside>
+
+<main style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+<header style="padding: 18px 28px 14px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<span style="font-size: 12px; color: #a1a1a6">touri / Cron</span>
+<h1 style="margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -0.4px">Cron</h1>
+<span style="font-size: 13px; color: #a1a1a6">6 rotinas · rodam enquanto o touri está aberto (barra de menus) · America/Sao_Paulo</span>
+</div>
+<div style="display: flex; gap: 8px">
+<button style="height: 36px; padding: 0 14px; border-radius: 10px; border: 1px solid #3a3a3c; background: transparent; color: #f5f5f7; font-size: 13px; cursor: pointer">Atualizar</button>
+<button style="height: 36px; padding: 0 16px; border-radius: 10px; border: 0; background: #e5322d; color: #ffffff; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px">
+<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+<span>Criar cron</span>
+</button>
+</div>
+</header>
+
+<div style="padding: 0 28px 12px; display: flex; flex-wrap: wrap; gap: 8px">
+<sc-for list="{{botFilters}}" as="f" hint-placeholder-count="4">
+<button onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button>
+</sc-for>
+<span style="width: 1px; background: #2c2c2e; margin: 0 4px"></span>
+<sc-for list="{{stateFilters}}" as="f" hint-placeholder-count="3">
+<button onClick="{{f.pick}}" style="{{f.style}}">{{f.label}}</button>
+</sc-for>
+</div>
+
+<div style="flex: 1; min-height: 0; display: flex; flex-wrap: wrap; gap: 20px; padding: 4px 28px 24px; overflow-y: auto; align-content: flex-start">
+<section style="flex: 999 1 520px; min-width: 0; display: flex; flex-direction: column; gap: 16px">
+
+<div style="border-radius: 14px; border: 1px solid #5a3a12; background: #241a0d; padding: 14px 16px; display: flex; align-items: center; gap: 12px">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffb340" stroke-width="2" aria-hidden="true"><path d="M12 3 2 21h20zM12 10v5M12 18h.01"/></svg>
+<span style="flex: 1; font-size: 14px; color: #ffe2b8">2 posts do mark aguardando sua aprovação antes de publicar</span>
+<a href="#" style="font-size: 13px; font-weight: 600; color: #ffffff">Revisar →</a>
+</div>
+
+<div style="border-radius: 14px; border: 1px solid #2c2c2e; background: #141416; overflow: hidden">
+<div style="padding: 14px 16px; border-bottom: 1px solid #2c2c2e; display: flex; justify-content: space-between; align-items: center">
+<span style="font-size: 15px; font-weight: 700">Fila de crons</span>
+<span style="font-size: 12px; color: #a1a1a6">próxima: hoje 20:00</span>
+</div>
+<div class="tc-list" style="display: flex; flex-direction: column">
+<sc-for list="{{crons}}" as="c" hint-placeholder-count="6">
+<div class="tc-row" style="{{c.rowStyle}}">
+<span style="{{c.avatar}}">{{c.initial}}</span>
+<span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px">
+<span style="font-size: 14px; font-weight: 600">{{c.title}}</span>
+<span style="font-size: 12px; color: #a1a1a6">{{c.when}} · {{c.bot}}</span>
+</span>
+<span style="display: flex; flex-direction: column; align-items: flex-end; gap: 3px; min-width: 120px">
+<span style="{{c.statusStyle}}"><sc-if value="{{c.live}}" hint-placeholder-val="{{ false }}"><span class="tc-live">● </span></sc-if>{{c.status}}</span>
+<span style="font-size: 11px; color: #8e8e93">{{c.next}}</span>
+</span>
+<span style="display: flex; gap: 2px">
+<button aria-label="Rodar agora" style="width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #a1a1a6; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 5v14l12-7z"/></svg></button>
+<button aria-label="{{c.toggleLabel}}" onClick="{{c.toggle}}" style="width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #a1a1a6; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="{{c.toggleIcon}}"/></svg></button>
+<button aria-label="Editar" style="width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: #a1a1a6; cursor: pointer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg></button>
+</span>
+</div>
+</sc-for>
+</div>
+</div>
+</section>
+
+<section style="flex: 1 1 380px; min-width: 0; border-radius: 14px; border: 1px solid #2c2c2e; background: #141416; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; align-self: flex-start">
+<div style="display: flex; align-items: center; justify-content: space-between">
+<span style="font-size: 15px; font-weight: 700">Calendário mensal</span>
+<span style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #e5e5ea">
+<button aria-label="Mês anterior" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: #2c2c2e; color: #f5f5f7; cursor: pointer">‹</button>
+<span>outubro 2026</span>
+<button aria-label="Próximo mês" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: #2c2c2e; color: #f5f5f7; cursor: pointer">›</button>
+</span>
+</div>
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; font-size: 11px; color: #8e8e93; text-align: center">
+<sc-for list="{{weekdays}}" as="w" hint-placeholder-count="7"><span>{{w}}</span></sc-for>
+</div>
+<div style="display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px">
+<sc-for list="{{days}}" as="d" hint-placeholder-count="35">
+<div style="{{d.style}}">
+<span style="font-size: 12px">{{d.n}}</span>
+<span style="display: flex; gap: 2px; flex-wrap: wrap; justify-content: center">
+<sc-for list="{{d.dots}}" as="dot" hint-placeholder-count="2"><span style="{{dot}}"></span></sc-for>
+</span>
+</div>
+</sc-for>
+</div>
+<div style="display: flex; gap: 14px; font-size: 11px; color: #a1a1a6">
+<span style="display: flex; align-items: center; gap: 5px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #ff8a3d"></span>mark</span>
+<span style="display: flex; align-items: center; gap: 5px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #3ddc97"></span>onb</span>
+<span style="display: flex; align-items: center; gap: 5px"><span style="width: 7px; height: 7px; border-radius: 50%; background: #ff6961"></span>falhou</span>
+</div>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+constructor(props) {
+super(props);
+this.state = { bot: 'all', st: 'all', paused: {} };
+}
+renderVals() {
+const navDefs = [
+['Cron', 'Rotinas agendadas dos bots', '6', 'M12 7v5l3 2M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', true],
+['Integrações', 'GitHub, Discord, e-mail', '3', 'M9 7V3M15 7V3M7 7h10v5a5 5 0 0 1-10 0zM12 17v4', false],
+['MCP', 'Servidores de ferramentas', '4', 'M12 3v6M12 15v6M3 12h6M15 12h6M12 9a3 3 0 1 1 0 6 3 3 0 0 1 0-6', false]
+];
+const nav = navDefs.map((n) => ({ label: n[0], hint: n[1], count: n[2], icon: n[3], style: 'display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: 10px; background: ' + (n[4] ? '#2c2c2e' : 'transparent') }));
+const pill = (on) => 'height: 30px; padding: 0 12px; border-radius: 999px; font-size: 12px; cursor: pointer; border: 1px solid ' + (on ? '#f5f5f7' : '#3a3a3c') + '; background: ' + (on ? '#f5f5f7' : 'transparent') + '; color: ' + (on ? '#0b0b0b' : '#e5e5ea');
+const botFilters = [['all', 'Todos os bots'], ['mark', 'mark'], ['onb', 'onb'], ['Panko', 'Panko']].map((f) => ({ label: f[1], pick: () => this.setState({ bot: f[0] }), style: pill(this.state.bot === f[0]) }));
+const stateFilters = [['all', 'Todos'], ['active', 'Ativos'], ['paused', 'Pausados']].map((f) => ({ label: f[1], pick: () => this.setState({ st: f[0] }), style: pill(this.state.st === f[0]) }));
+const colors = { mark: '#ff8a3d', onb: '#3ddc97' };
+const tone = { ok: ['#30d158', 'Concluído'], run: ['#64b5ff', 'Rodando'], fail: ['#ff6961', 'Falhou'], idle: ['#a1a1a6', 'Ainda não rodou'] };
+const defs = [
+['m10', 'mark: publicar fila 10h', 'Seg a sex · 10:00', 'mark', 'ok', 'amanhã 10:00'],
+['m13', 'mark: publicar fila 13h', 'Seg a sex · 13:00', 'mark', 'ok', 'amanhã 13:00'],
+['m17', 'mark: publicar fila 17h30', 'Seg a sex · 17:30', 'mark', 'run', 'rodando agora'],
+['mw', 'mark: semana de posts', 'Domingo · 17:00', 'mark', 'ok', 'dom 18 out 17:00'],
+['k1', 'onb: fila de KYB', 'Todo dia · 13:00, 17:00, 20:00', 'onb', 'ok', 'hoje 20:00'],
+['mx', 'mark: relatório de alcance', 'Sexta · 18:00', 'mark', 'fail', 'sex 16 out 18:00']
+];
+const paused = this.state.paused;
+const crons = defs
+.filter((d) => this.state.bot === 'all' || this.state.bot === d[3])
+.filter((d) => this.state.st === 'all' || (this.state.st === 'paused') === Boolean(paused[d[0]]))
+.map((d) => {
+const isPaused = Boolean(paused[d[0]]);
+const t = isPaused ? ['#a1a1a6', 'Pausado'] : tone[d[4]];
+return {
+title: d[1], when: d[2], bot: d[3], next: isPaused ? '—' : d[5],
+initial: d[3].charAt(0).toUpperCase(),
+live: !isPaused && d[4] === 'run',
+status: t[1],
+statusStyle: 'font-size: 12px; font-weight: 600; color: ' + t[0],
+avatar: 'width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; color: #141413; background: ' + colors[d[3]],
+rowStyle: 'display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid #222224; opacity: ' + (isPaused ? '0.55' : '1'),
+toggleLabel: isPaused ? 'Retomar' : 'Pausar',
+toggleIcon: isPaused ? 'M7 5v14l12-7z' : 'M7 5h4v14H7zM13 5h4v14h-4z',
+toggle: () => this.setState({ paused: { ...paused, [d[0]]: !isPaused } })
+};
+});
+const weekdays = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+const dot = (c) => 'width: 5px; height: 5px; border-radius: 50%; background: ' + c;
+const days = Array.from({ length: 35 }, (_, i) => {
+const n = i - 3;
+const inMonth = n >= 1 && n <= 31;
+const wd = i % 7;
+const weekday = wd >= 1 && wd <= 5;
+const dots = !inMonth ? [] : [weekday ? dot('#ff8a3d') : null, dot('#3ddc97'), n === 9 ? dot('#ff6961') : null].filter(Boolean);
+const today = n === 12;
+return {
+n: inMonth ? String(n) : '',
+dots,
+style: 'height: 46px; border-radius: 8px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: ' + (inMonth ? '#f5f5f7' : '#48484a') + '; background: ' + (today ? '#3a1d1c' : (inMonth ? '#1c1c1e' : 'transparent')) + '; border: 1px solid ' + (today ? '#e5322d' : 'transparent')
+};
+});
+return { nav, botFilters, stateFilters, crons, weekdays, days };
+}
+}
+</script>
+</body>
+</html>

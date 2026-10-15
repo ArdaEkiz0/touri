@@ -1,0 +1,280 @@
+.group-mascots {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  padding-left: 4px;
+}
+.group-mascots > * {
+  margin-left: -4px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface-panel);
+}
+.group-sidebar {
+  border-top: 1px solid var(--border-subtle);
+  padding: 14px 10px;
+}
+.group-sidebar-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  padding: 0 6px 8px;
+  font-size: 12px;
+}
+.group-sidebar-heading small {
+  color: var(--text-secondary);
+  margin-left: 4px;
+}
+.group-sidebar button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+  border-radius: 7px;
+}
+.group-sidebar-heading button {
+  width: 28px;
+  height: 28px;
+  font-size: 20px;
+}
+.group-sidebar-row {
+  display: flex;
+  align-items: center;
+}
+.group-select {
+  display: flex;
+  flex: 1;
+  gap: 9px;
+  align-items: center;
+  text-align: left;
+  padding: 9px 6px;
+  min-width: 0;
+  font-size: 13px;
+}
+.group-select > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-sidebar-item.selected,
+.group-sidebar button:hover {
+  background: var(--surface-control);
+}
+.group-thread-list {
+  display: grid;
+  gap: 2px;
+  padding: 0 7px 7px 34px;
+}
+.group-thread-list button {
+  text-align: left;
+  padding: 7px;
+  font-size: 12px;
+}
+.group-thread-list button[aria-current] {
+  color: var(--accent-brand);
+  font-weight: 600;
+}
+.group-empty {
+  color: var(--text-secondary);
+  font-size: 12px;
+  padding: 0 6px;
+}
+.group-header {
+  gap: 18px;
+  min-height: 90px;
+}
+.group-heading-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+}
+.group-header-members {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  flex: 1;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.group-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0006;
+  z-index: 100;
+  padding: 20px;
+}
+.modal-card.group-modal {
+  width: min(560px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  padding: 26px;
+  box-shadow: 0 24px 80px #0003;
+}
+.group-modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.group-modal-heading h2 {
+  margin: 4px 0;
+  font-size: 25px;
+}
+.group-modal-heading button {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  font-size: 24px;
+  cursor: pointer;
+}
+.group-modal .muted-copy {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.group-field {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.group-field input,
+.group-field select {
+  flex-basis: 100%;
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+  color: inherit;
+  border-radius: 8px;
+}
+.group-modal fieldset {
+  border: 0;
+  padding: 0;
+  margin: 20px 0;
+  min-width: 0;
+}
+.group-modal legend {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.group-modal legend small {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+.group-member-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  max-height: 170px;
+  overflow: auto;
+}
+.group-member-picker label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--border-subtle);
+  padding: 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.group-member-picker label small {
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+.group-routing-note {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.group-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.group-mentions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.group-mentions button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: var(--surface-control);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+@media (max-width: 800px) {
+  .group-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .group-header-members {
+    flex-basis: 100%;
+    order: 3;
+  }
+}
+
+.group-member-picker input {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  accent-color: var(--accent-brand);
+}
+.group-modal .avatar-color-auto {
+  display: none;
+}
+.group-sidebar {
+  max-height: 35vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.group-header-members {
+  min-width: 0;
+}
+.group-header-members > span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.group-heading-name strong {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-modal .group-member-picker input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  padding: 0;
+  margin: 0;
+}
+.group-modal .group-member-picker label {
+  min-width: 0;
+}
+.group-modal .group-member-picker .tb-avatar {
+  flex-shrink: 0;
+}
+.group-modal .group-member-picker label > span:not(.tb-avatar) {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

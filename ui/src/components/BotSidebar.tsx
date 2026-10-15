@@ -1,0 +1,647 @@
+import type { Bot, BotGroup, Id, Message, NotificationRecord, Run, Thread } from "@touri/contracts"
+import { type ReactNode, useMemo, useState } from "react"
+import { type ApprovalTarget, pendingApprovalTargets } from "../approvalNavigation"
+import { BOT_ACTIVITY_LABELS, type BotActivity } from "../botActivity"
+import { latestPreview } from "../botPreview"
+import { paletteShortcutLabel } from "../features/commandPalette/shortcut"
+import { t, threadTitle } from "../i18n"
+import { markdownSummary } from "../markdownSummary"
+import { isFailureNotice, pendingNotifications, relativeThreadDate } from "../sidebarAttention"
+import { useMascotSnapshot } from "./AvatarRuntime"
+import { BotAvatar } from "./BotAvatar"
+import { DeleteBotDialog } from "./DeleteBotDialog"
+import { GroupSidebar } from "./Groups"
+import { useInsertedIds } from "./Motion"
+import { mascotIsBusy } from "./mascotState"
+import { type NotificationActions, NotificationBell } from "./NotificationCenter"
+import { type HoldReason, useSidebarOrder } from "./useSidebarOrder"
+import "./bot-sidebar.css"
+
+type SidebarProps = {
+  groups?: BotGroup[]
+  onNewGroup?: () => void
+  onEditGroup?: (group: BotGroup) => void
+  onNewGroupThread?: (group: BotGroup) => void
+  showFakeTrafficLights: boolean
+  bots: Array<Bot>
+  routineCount: number
+  threads: Array<Thread>
+  messages: Array<Message>
+  runs?: Array<Run>
+  /** Float bots with updates to the top (settings: "Mover bots com novidades para o topo"). Default on. */
+  floatUpdates?: boolean
+  selectedBotId: Id | null
+  selectedThreadId: Id | null
+  section: "touri" | "bots"
+  touriPage: "cron" | "integracoes" | "mcp"
+  onSection: (section: "touri" | "bots") => void
+  onTouriPage: (page: "cron" | "integracoes" | "mcp") => void
+  onSelect: (id: Id) => void
+  onSelectThread: (id: Id) => void
+  onReviewApproval: (target: ApprovalTarget) => void
+  onNewThread: () => void
+  onNewBot: () => void
+  onBotSettings: () => void
+  onDeleteBot?: (botId: string, name: string, deleteVolumes: boolean) => Promise<void>
+  onSettings: () => void
+  onDoctor: () => void
+  onSearch: () => void
+  notifications: Array<NotificationRecord>
+  onNotificationsOpen: (open: boolean) => void
+  notificationActions: NotificationActions
+}
+
+const SidebarIcon = ({ children }: { children: ReactNode }) => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.7"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {children}
+  </svg>
+)
+
+export const Sidebar = (props: SidebarProps) => {
+  const [menuOpen, setMenuOpen] = useState(props.section === "touri")
+  // Switching bots inside Preview keeps that view; global pages return to the bot conversation.
+  const select = (id: Id): void => {
+    props.onSelect(id)
+    if (props.section !== "bots") props.onSection("bots")
+  }
+  const selectThread = (id: Id): void => {
+    props.onSelectThread(id)
+    if (props.section !== "bots") props.onSection("bots")
+  }
+  const insertedThreads = useInsertedIds(props.threads.map((thread) => thread.id))
+  const attention = useMemo(
+    () => pendingNotifications(props.notifications, props.messages),
+    [props.notifications, props.messages],
+  )
+  const ordered = useSidebarOrder({ ...props, attention })
+  return (
+    <nav className="bot-sidebar r8-sidebar" aria-label={t("Workspace sidebar")}>
+      <div className="traffic-light-row" data-tauri-drag-region>
+        {props.showFakeTrafficLights ? (
+          <div className="sidebar-traffic-lights" aria-hidden="true">
+            <span className="traffic-light red" />
+            <span className="traffic-light yellow" />
+            <span className="traffic-light green" />
+          </div>
+        ) : (
+          <span className="traffic-light-spacer" aria-hidden="true" />
+        )}
+        <div className="sidebar-top-actions">
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            onClick={props.onSearch}
+            aria-label="Buscar conversas"
+            aria-keyshortcuts="Meta+K Control+K"
+            title={`Buscar bots, conversas e configurações (${paletteShortcutLabel()})`}
+          >
+            <SidebarIcon>
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m16 16 4 4" />
+            </SidebarIcon>
+          </button>
+          <button
+            type="button"
+            className="sidebar-icon-button"
+            onClick={props.onNewBot}
+            aria-label={t("Create teammate")}
+            title={t("Create teammate")}
+          >
+            <SidebarIcon>
+              <path d="M12 5v14M5 12h14" />
+            </SidebarIcon>
+          </button>
+        </div>
+      </div>
+      <div className="sidebar-list-heading">
+        <button
+          type="button"
+          className="sidebar-brand"
+          aria-label="touri"
+          aria-expanded={menuOpen}
+          aria-controls="sidebar-touri-menu"
+          onClick={() => {
+            setMenuOpen(!menuOpen)
+            if (!menuOpen && props.section !== "touri") props.onSection("touri")
+          }}
+        >
+          <img src="/touri-bull.png" alt="" />
+          <span>touri</span>
+          <SidebarIcon>
+            <path d="m8 10 4 4 4-4" />
+          </SidebarIcon>
+        </button>
+        <button
+          type="button"
+          className="sidebar-bots-link"
+          aria-current={props.section === "bots" ? "page" : undefined}
+          onClick={() => {
+            setMenuOpen(false)
+            props.onSection("bots")
+          }}
+        >
+          Bots <span>{props.bots.length}</span>
+        </button>
+      </div>
+      {menuOpen && (
+        <nav id="sidebar-touri-menu" className="touri-nav" aria-label="touri">
+          <SidebarNavItem
+            active={props.section === "touri" && props.touriPage === "cron"}
+            label="Cron"
+            count={props.routineCount}
+            onClick={() => props.onTouriPage("cron")}
+            icon={
+              <SidebarIcon>
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 7v5l3 2" />
+              </SidebarIcon>
+            }
+          />
+          <SidebarNavItem
+            active={props.section === "touri" && props.touriPage === "integracoes"}
+            label="Integrações"
+            onClick={() => props.onTouriPage("integracoes")}
+            icon={
+              <SidebarIcon>
+                <path d="M8 7V3m8 4V3M6 7h12v4a6 6 0 0 1-12 0ZM12 17v4" />
+              </SidebarIcon>
+            }
+          />
+          <SidebarNavItem
+            active={props.section === "touri" && props.touriPage === "mcp"}
+            label="MCP"
+            onClick={() => props.onTouriPage("mcp")}
+            icon={
+              <SidebarIcon>
+                <rect x="4" y="4" width="16" height="6" rx="2" />
+                <rect x="4" y="14" width="16" height="6" rx="2" />
+                <path d="M8 7h.01M8 17h.01" />
+              </SidebarIcon>
+            }
+          />
+          <SidebarNavItem
+            label="Reportar problema"
+            onClick={() => window.dispatchEvent(new Event("touri-report-problem"))}
+            icon={
+              <SidebarIcon>
+                <path d="M5 3h14v18H5zM9 8h6M9 12h6M9 16h2" />
+              </SidebarIcon>
+            }
+          />
+          <SidebarNavItem
+            label="Diagnóstico"
+            onClick={props.onDoctor}
+            icon={
+              <SidebarIcon>
+                <path d="m3 12 4 0 3-7 4 14 3-7h4" />
+              </SidebarIcon>
+            }
+          />
+        </nav>
+      )}
+      <div className="bot-groups">
+        <div className="bot-list" ref={ordered.listRef}>
+          {ordered.bots.map((bot) => (
+            <BotEntry
+              key={bot.id}
+              bot={bot}
+              activity={ordered.activity.get(bot.id) ?? null}
+              onHold={ordered.hold}
+              insertedThreads={insertedThreads}
+              threads={props.threads.filter((thread) => thread.botId === bot.id && !thread.groupId)}
+              messages={props.messages}
+              attention={attention.filter((item) => item.botId === bot.id)}
+              notifications={props.notifications}
+              selected={
+                props.section === "bots" &&
+                bot.id === props.selectedBotId &&
+                !props.threads.find((t) => t.id === props.selectedThreadId)?.groupId
+              }
+              expanded={
+                bot.id === props.selectedBotId && !props.threads.find((t) => t.id === props.selectedThreadId)?.groupId
+              }
+              selectedThreadId={props.section === "bots" ? props.selectedThreadId : null}
+              onSelect={() => select(bot.id)}
+              onSelectThread={selectThread}
+              onNewThread={() => {
+                if (props.section !== "bots") props.onSection("bots")
+                props.onNewThread()
+              }}
+              onSettings={() => {
+                select(bot.id)
+                props.onBotSettings()
+              }}
+              onReviewApproval={props.onReviewApproval}
+              onNotification={props.notificationActions.open}
+              onDelete={props.onDeleteBot}
+            />
+          ))}
+        </div>
+      </div>
+      {props.onNewGroup && (
+        <GroupSidebar
+          groups={props.groups ?? []}
+          bots={props.bots}
+          threads={props.threads}
+          selectedThreadId={props.selectedThreadId}
+          onSelect={selectThread}
+          onCreate={props.onNewGroup}
+          onEdit={(g) => props.onEditGroup?.(g)}
+          onNewThread={(g) => props.onNewGroupThread?.(g)}
+        />
+      )}
+      <div className="sidebar-footer">
+        <div className="sidebar-user-row">
+          <button type="button" className="user-chip" onClick={props.onSettings}>
+            <span className="user-avatar" aria-hidden="true">
+              T
+            </span>
+            <span>
+              <strong>{t("Você")}</strong>
+              <small>{t("Local · grátis")}</small>
+            </span>
+          </button>
+          <NotificationBell
+            notifications={props.notifications}
+            messages={props.messages}
+            actions={props.notificationActions}
+            onOpenChange={props.onNotificationsOpen}
+          />
+        </div>
+        <button
+          type="button"
+          className="sidebar-connect"
+          onClick={() => props.onTouriPage("integracoes")}
+          aria-current={props.section === "touri" && props.touriPage === "integracoes" ? "page" : undefined}
+        >
+          <SidebarIcon>
+            <path d="M8 7V3m8 4V3M6 7h12v4a6 6 0 0 1-12 0ZM12 17v4" />
+          </SidebarIcon>
+          <span>Conectar aplicativos</span>
+          <SidebarIcon>
+            <path d="m9 6 6 6-6 6" />
+          </SidebarIcon>
+        </button>
+      </div>
+    </nav>
+  )
+}
+
+const SidebarNavItem = ({
+  active,
+  label,
+  count,
+  icon,
+  onClick,
+}: {
+  active?: boolean
+  label: string
+  count?: number
+  icon: ReactNode
+  onClick: () => void
+}) => (
+  <button
+    type="button"
+    className={`sidebar-nav-item ${active ? "active" : ""}`}
+    aria-current={active ? "page" : undefined}
+    onClick={onClick}
+  >
+    {icon}
+    <span>{label}</span>
+    {count !== undefined && <small>{count}</small>}
+  </button>
+)
+
+const BotEntry = ({
+  insertedThreads,
+  bot,
+  activity,
+  onHold,
+  threads,
+  messages,
+  attention,
+  notifications,
+  selected,
+  expanded,
+  selectedThreadId,
+  onSelect,
+  onSelectThread,
+  onNewThread,
+  onSettings,
+  onReviewApproval,
+  onNotification,
+  onDelete,
+}: {
+  bot: Bot
+  activity: BotActivity | null
+  onHold: (botId: Id, reason: HoldReason, active: boolean) => void
+  insertedThreads: ReadonlySet<string>
+  threads: Array<Thread>
+  messages: Array<Message>
+  attention: Array<NotificationRecord>
+  notifications: Array<NotificationRecord>
+  selected: boolean
+  expanded: boolean
+  selectedThreadId: Id | null
+  onSelect: () => void
+  onSelectThread: (id: Id) => void
+  onNewThread: () => void
+  onSettings: () => void
+  onReviewApproval: (target: ApprovalTarget) => void
+  onNotification: (item: NotificationRecord) => void
+  onDelete?: ((botId: string, name: string, deleteVolumes: boolean) => Promise<void>) | undefined
+}) => {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const snapshot = useMascotSnapshot(bot)
+  const ids = threads.map((thread) => thread.id)
+  const botMessages = messages.filter((message) => ids.includes(message.threadId))
+  const latestAssistant = [...botMessages]
+    .filter((message) => message.role === "assistant")
+    .sort((a, b) => b.createdAt - a.createdAt)[0]
+  const failureRead =
+    latestAssistant &&
+    notifications.some(
+      (item) =>
+        item.botId === bot.id &&
+        item.threadId === latestAssistant.threadId &&
+        isFailureNotice(item) &&
+        item.resolvedAt !== null &&
+        item.createdAt >= latestAssistant.createdAt &&
+        item.resolvedAt >= latestAssistant.updatedAt,
+    )
+  const completedAfterFailure =
+    latestAssistant &&
+    notifications.some(
+      (item) =>
+        item.kind === "done" &&
+        item.threadId === latestAssistant.threadId &&
+        item.createdAt > latestAssistant.updatedAt,
+    )
+  const newestCompletion = Math.max(
+    0,
+    ...botMessages
+      .filter((message) => message.role === "assistant" && message.status === "complete")
+      .map((message) => message.updatedAt),
+    ...notifications.filter((item) => item.botId === bot.id && item.kind === "done").map((item) => item.createdAt),
+  )
+  const failure = attention.find((item) => isFailureNotice(item) && item.createdAt >= newestCompletion)
+  const failed = Boolean(
+    failure ||
+      (latestAssistant?.status === "failed" &&
+        latestAssistant.updatedAt >= newestCompletion &&
+        !failureRead &&
+        !completedAfterFailure),
+  )
+  const waiting = attention.find((item) => ["approval", "question", "takeover", "incident"].includes(item.kind))
+  const approvals = pendingApprovalTargets(botMessages)
+  const unread = threads.reduce((count, thread) => count + thread.unread, 0)
+  const preview = latestPreview({ threadIds: ids, messages })
+  const status = approvals.length
+    ? "Aguardando sua aprovação"
+    : waiting
+      ? "Aguardando você"
+      : failed
+        ? "Resposta interrompida"
+        : bot.paused
+          ? "Pausado"
+          : null
+  const badgeState =
+    approvals.length || waiting
+      ? "waiting"
+      : failed
+        ? "failed"
+        : mascotIsBusy(snapshot.state) || botMessages.some((message) => message.status === "streaming")
+          ? "running"
+          : null
+  // A dismissed or superseded failure must not keep the sidebar mascot in an error pose.
+  const avatarState = snapshot.state === "error" && !failed ? "idle" : undefined
+  const activityKind = activity?.kind ?? null
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover and focus only pause reordering; they trigger no action
+    <div
+      className={`bot-entry ${expanded ? "expanded" : ""}`}
+      data-bot-entry={bot.id}
+      data-activity={activityKind ?? undefined}
+      onMouseEnter={() => onHold(bot.id, "hover", true)}
+      onMouseLeave={() => onHold(bot.id, "hover", false)}
+      onFocus={() => onHold(bot.id, "focus", true)}
+      onBlur={(event) => {
+        if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)))
+          onHold(bot.id, "focus", false)
+      }}
+    >
+      <div className={`bot-row ${selected ? "selected" : ""}`} data-attention={badgeState ?? undefined}>
+        {activityKind && (
+          <span
+            className={`bot-activity-dot activity-${activityKind}`}
+            role="img"
+            aria-label={`${bot.name}: ${BOT_ACTIVITY_LABELS[activityKind].toLocaleLowerCase("pt-BR")}`}
+            title={BOT_ACTIVITY_LABELS[activityKind]}
+          />
+        )}
+        <button
+          type="button"
+          className="bot-row-main"
+          onClick={onSelect}
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setMenuOpen(true)
+          }}
+          aria-current={selected ? "page" : undefined}
+        >
+          <BotAvatar bot={bot} size={30} {...(avatarState ? { state: avatarState } : {})} motion="idle" />
+          <span className="bot-row-copy">
+            <strong title={bot.roleLine || bot.title || undefined}>{bot.name}</strong>
+            <small className="bot-role visually-hidden">{bot.roleLine || bot.title || "Bot local"}</small>
+            <small
+              className={`bot-preview ${badgeState === "waiting" || badgeState === "failed" ? `state-${badgeState}` : ""}`}
+              title={status || preview || undefined}
+            >
+              {status || preview || "Comece uma conversa"}
+            </small>
+          </span>
+        </button>
+        <div className="sidebar-row-actions">
+          {approvals.length > 0 ? (
+            <button
+              type="button"
+              className="sidebar-approval-badge"
+              aria-label={`Revisar ${approvals.length === 1 ? "aprovação" : "aprovações"} de ${bot.name}`}
+              title={`${approvals.length} ${approvals.length === 1 ? "aprovação pendente" : "aprovações pendentes"}`}
+              onClick={() => {
+                const target = approvals[0]
+                if (target) onReviewApproval(target)
+              }}
+            >
+              {approvals.length}
+            </button>
+          ) : (waiting || failure)?.threadId ? (
+            <button
+              type="button"
+              className={`sidebar-attention-button state-${badgeState}`}
+              aria-label={`Abrir ${badgeState === "failed" ? "falha" : "pendência"} de ${bot.name}`}
+              title={badgeState === "failed" ? "Abrir e marcar como lida" : "Abrir pendência"}
+              onClick={() => {
+                const item = waiting || failure
+                if (item) onNotification(item)
+              }}
+            >
+              <span className="sidebar-status-dot" />
+            </button>
+          ) : badgeState ? (
+            <span
+              className={`sidebar-status-dot state-${badgeState}`}
+              role="img"
+              aria-label={status ?? "Em execução"}
+            />
+          ) : unread > 0 ? (
+            <span
+              className="sidebar-unread"
+              role="img"
+              aria-label={`${unread} ${unread === 1 ? "mensagem não lida" : "mensagens não lidas"}`}
+            >
+              {unread > 99 ? "99+" : unread}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            className="bot-settings"
+            onClick={onSettings}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              setMenuOpen(true)
+            }}
+            aria-label={t("Bot settings", { name: bot.name })}
+            title="Configurações do bot"
+          >
+            ···
+          </button>
+          <button
+            type="button"
+            className="bot-settings"
+            aria-label={`Ações de ${bot.name}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            ⌄
+          </button>
+        </div>
+      </div>
+      {menuOpen && (
+        <div
+          className="bot-context-menu"
+          role="menu"
+          aria-label={`Ações de ${bot.name}`}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") setMenuOpen(false)
+          }}
+        >
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setMenuOpen(false)
+              onSettings()
+            }}
+          >
+            Configurações do bot
+          </button>
+          {onDelete && (
+            <button
+              type="button"
+              role="menuitem"
+              className="tool-action-deny"
+              onClick={() => {
+                setMenuOpen(false)
+                setDeleting(true)
+              }}
+            >
+              Excluir bot
+            </button>
+          )}
+        </div>
+      )}
+      {deleting && onDelete && <DeleteBotDialog bot={bot} onDelete={onDelete} onClose={() => setDeleting(false)} />}
+      {expanded && (
+        <section className="bot-thread-tree" aria-label={`Conversas de ${bot.name}`}>
+          {[...threads]
+            .sort((a, b) => b.updatedAt - a.updatedAt)
+            .map((thread) => (
+              <ThreadRow
+                key={thread.id}
+                inserted={insertedThreads.has(thread.id)}
+                thread={thread}
+                selected={thread.id === selectedThreadId}
+                running={messages.some((message) => message.threadId === thread.id && message.status === "streaming")}
+                onClick={() => onSelectThread(thread.id)}
+              />
+            ))}
+          <button type="button" className="new-thread-row" onClick={onNewThread}>
+            <SidebarIcon>
+              <path d="M12 5v14M5 12h14" />
+            </SidebarIcon>
+            {t("Nova conversa")}
+          </button>
+        </section>
+      )}
+    </div>
+  )
+}
+
+const ThreadRow = ({
+  inserted,
+  thread,
+  selected,
+  running,
+  onClick,
+}: {
+  thread: Thread
+  inserted: boolean
+  selected: boolean
+  running: boolean
+  onClick: () => void
+}) => (
+  <button
+    type="button"
+    data-motion-insert={inserted}
+    className={`thread-row ${selected ? "selected" : ""}`}
+    onClick={onClick}
+    aria-current={selected ? "page" : undefined}
+  >
+    <span className="thread-icon" aria-hidden="true">
+      {thread.kind === "routine" ? (
+        <SidebarIcon>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7v5l3 2" />
+        </SidebarIcon>
+      ) : (
+        <SidebarIcon>
+          <path d="M5 5h14v10H9l-4 4Z" />
+        </SidebarIcon>
+      )}
+    </span>
+    <span className="thread-copy">
+      <strong title={markdownSummary(threadTitle(thread.title, thread.createdAt))}>
+        {markdownSummary(threadTitle(thread.title, thread.createdAt))}
+      </strong>
+      <small>{relativeThreadDate(thread.updatedAt)}</small>
+    </span>
+    {running ? (
+      <span className="sidebar-status-dot state-running" role="img" aria-label="Em execução" />
+    ) : thread.unread > 0 ? (
+      <span className="sidebar-unread">{thread.unread > 99 ? "99+" : thread.unread}</span>
+    ) : null}
+  </button>
+)

@@ -1,0 +1,380 @@
+import { dlopen, read } from "bun:ffi"
+import { randomBytes } from "node:crypto"
+import {
+  closeSync,
+  constants,
+  existsSync,
+  fchmodSync,
+  fstatSync,
+  fsyncSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  writeSync,
+} from "node:fs"
+import { basename, dirname, relative, resolve, sep } from "node:path"
+import { TouriError } from "./errors"
+
+// Node's path APIs cannot pin ancestor directories during rename. These small POSIX
+// calls keep every operation relative to an O_NOFOLLOW directory descriptor.
+const native = dlopen(process.platform === "darwin" ? "/usr/lib/libSystem.B.dylib" : "libc.so.6", {
+  openat: { args: ["i32", "cstring", "i32", "u32"], returns: "i32" },
+  mkdirat: { args: ["i32", "cstring", "u32"], returns: "i32" },
+  renameat: { args: ["i32", "cstring", "i32", "cstring"], returns: "i32" },
+  unlinkat: { args: ["i32", "cstring", "i32"], returns: "i32" },
+  [process.platform === "darwin" ? "__error" : "__errno_location"]: { args: [], returns: "ptr" },
+}).symbols
+
+const cstring = (text: string): Buffer => Buffer.from(`${text}\0`)
+const errno = (): number => {
+  const pointer = native[process.platform === "darwin" ? "__error" : "__errno_location"]?.()
+  return pointer ? read.i32(pointer) : 0
+}
+const closeOnExec = process.platform === "darwin" ? 0x1000000 : 0x80000
+const directoryFlags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW | closeOnExec
+const failure = (): TouriError => {
+  const code = errno()
+  if (code === 28 || code === (process.platform === "darwin" ? 69 : 122)) return new TouriError("TOURI-E2002")
+  return new TouriError(code === 13 || code === 1 ? "TOURI-E2000" : "TOURI-E2001")
+}
+const openAt = (parent: number, name: string, flags: number, mode = 0): number =>
+  native.openat(parent, cstring(name), flags, mode)
+
+const directoryAt = (parent: number, name: string, create: boolean): number => {
+  if (create && native.mkdirat(parent, cstring(name), 0o700) < 0 && errno() !== 17) throw failure()
+  const fd = openAt(parent, name, directoryFlags)
+  if (fd < 0) throw new TouriError("TOURI-E2000")
+  return fd
+}
+
+/** Pins an existing workspace directory without creating or modifying any path. Caller closes the fd. */
+export const openWorkspaceDirectory = ({ root, path }: { root: string; path: string }): number => {
+  if (path.includes("\0") || path.startsWith("/") || path.split("/").some((part) => part === ".."))
+    throw new TouriError("TOURI-E2000")
+  const absoluteRoot = resolve(root)
+  let fd = openSync(resolve(realpathSync(dirname(absoluteRoot)), basename(absoluteRoot)), directoryFlags)
+  try {
+    for (const part of path.split("/").filter(Boolean)) {
+      const next = directoryAt(fd, part, false)
+      closeSync(fd)
+      fd = next
+    }
+    return fd
+  } catch (error) {
+    closeSync(fd)
+    throw error
+  }
+}
+
+export const MAX_ATTACHMENT_BYTES = 15 * 1024 * 1024
+
+/** Read one bounded regular file through pinned, no-follow directory descriptors. */
+export const readBoundedFile = ({ root, path, maxBytes }: { root: string; path: string; maxBytes: number }): Buffer => {
+  const parts = pathParts(root, path)
+  const name = parts.pop()
+  if (!name) throw new TouriError("TOURI-E2000")
+  const directory = openWorkspaceDirectory({ root, path: parts.join("/") })
+  let fd: number
+  try {
+    fd = openWorkspaceEntry(directory, name)
+  } finally {
+    closeSync(directory)
+  }
+  try {
+    const info = fstatSync(fd)
+    if (!info.isFile() || info.size > maxBytes) throw new Error("Escolha um arquivo de até 15 MB")
+    const bytes = Buffer.alloc(info.size + 1)
+    let offset = 0
+    while (offset < bytes.length) {
+      const count = readSync(fd, bytes, offset, bytes.length - offset, offset)
+      if (!count) break
+      offset += count
+    }
+    if (offset !== info.size) throw new Error("O arquivo mudou durante a leitura")
+    return bytes.subarray(0, offset)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+/** Only these raster signatures are allowed to render in the authenticated origin. */
+export const rasterMime = (bytes: Uint8Array): string | null => {
+  const b = Buffer.from(bytes)
+  if (b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return "image/png"
+  if (b.length >= 3 && b[0] === 255 && b[1] === 216 && b[2] === 255) return "image/jpeg"
+  if (["GIF87a", "GIF89a"].includes(b.subarray(0, 6).toString("ascii"))) return "image/gif"
+  if (b.length >= 12 && b.subarray(0, 4).toString("ascii") === "RIFF" && b.subarray(8, 12).toString("ascii") === "WEBP")
+    return "image/webp"
+  return null
+}
+
+export const attachmentMime = (bytes: Uint8Array): string => rasterMime(bytes) ?? "application/octet-stream"
+
+/** Opens one entry relative to a pinned directory; symlinks and blocking device reads are refused. */
+export const openWorkspaceEntry = (directory: number, name: string): number => {
+  if (!name || name === "." || name === ".." || name.includes("/") || name.includes("\0"))
+    throw new TouriError("TOURI-E2000")
+  const fd = openAt(directory, name, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec)
+  if (fd < 0) throw new TouriError("TOURI-E2000")
+  return fd
+}
+
+const rootDirectory = (root: string): number => {
+  if (root.includes("\0") || resolve(root) === sep) throw new TouriError("TOURI-E2000")
+  const absolute = resolve(root)
+  // Ancestors outside the application root may contain OS aliases (/var, /tmp).
+  // Resolve those once, then walk the canonical parent without following links.
+  mkdirSync(dirname(absolute), { recursive: true, mode: 0o700 })
+  const parent = realpathSync(dirname(absolute))
+  let fd = openSync(sep, directoryFlags)
+  try {
+    for (const part of parent.split(sep).filter(Boolean)) {
+      const next = directoryAt(fd, part, false)
+      closeSync(fd)
+      fd = next
+    }
+    const rootFd = directoryAt(fd, basename(absolute), true)
+    try {
+      fsyncSync(fd)
+      return rootFd
+    } catch (error) {
+      closeSync(rootFd)
+      throw error
+    }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+const pathParts = (root: string, path: string): Array<string> => {
+  if (path.includes("\0")) throw new TouriError("TOURI-E2000")
+  const suffix = relative(resolve(root), resolve(path))
+  if (suffix === ".." || suffix.startsWith(`..${sep}`) || suffix.startsWith(sep)) throw new TouriError("TOURI-E2000")
+  return suffix.split(sep).filter(Boolean)
+}
+
+const withDirectory = <T>(root: string, parts: Array<string>, action: (fd: number) => T): T => {
+  let fd: number | undefined
+  try {
+    fd = rootDirectory(root)
+    for (const part of parts) {
+      const next = directoryAt(fd, part, true)
+      // Persist newly created directories as well as the final rename.
+      try {
+        fsyncSync(fd)
+      } catch (error) {
+        closeSync(next)
+        throw error
+      }
+      closeSync(fd)
+      fd = next
+    }
+    return action(fd)
+  } catch (error) {
+    if (error instanceof TouriError) throw error
+    const code = error instanceof Error && "code" in error ? error.code : null
+    throw new TouriError(
+      code === "ENOSPC" || code === "EDQUOT"
+        ? "TOURI-E2002"
+        : code === "EACCES" || code === "EPERM" || code === "ELOOP" || code === "ENOTDIR"
+          ? "TOURI-E2000"
+          : "TOURI-E2001",
+      { cause: error },
+    )
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
+const existingFile = (directory: number, name: string): number | null => {
+  const fd = openAt(directory, name, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK | closeOnExec)
+  if (fd < 0) {
+    if (errno() === 2) return null
+    throw new TouriError("TOURI-E2000")
+  }
+  try {
+    const stats = fstatSync(fd)
+    // A linked database or permission update must not modify another pathname.
+    if (!stats.isFile() || stats.nlink > 1) throw new TouriError("TOURI-E2000")
+    return fd
+  } catch (error) {
+    closeSync(fd)
+    throw error
+  }
+}
+
+const validateTarget = (directory: number, name: string): void => {
+  const fd = existingFile(directory, name)
+  if (fd !== null) closeSync(fd)
+}
+
+export type FileWrite = { root: string; path: string; content: string | Uint8Array; mode?: number }
+
+/** Injectable durability operations allow deterministic failure and ordering tests. */
+export const createAtomicWriter = ({ sync = fsyncSync }: { sync?: (fd: number) => void } = {}) => {
+  return ({ root, path, content, mode = 0o600 }: FileWrite): void => {
+    const parts = pathParts(root, path)
+    const name = parts.pop()
+    if (!name) throw new TouriError("TOURI-E2000")
+    withDirectory(root, parts, (directory) => {
+      validateTarget(directory, name)
+      const temporary = `.touri-${randomBytes(16).toString("hex")}.tmp`
+      const fd = openAt(
+        directory,
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW | closeOnExec,
+        0o600,
+      )
+      if (fd < 0) throw failure()
+      let renamed = false
+      try {
+        const bytes = typeof content === "string" ? Buffer.from(content) : content
+        for (let offset = 0; offset < bytes.byteLength; ) {
+          const written = writeSync(fd, bytes, offset, bytes.byteLength - offset)
+          if (written === 0) throw new TouriError("TOURI-E2001")
+          offset += written
+        }
+        fchmodSync(fd, mode)
+        sync(fd)
+        validateTarget(directory, name)
+        if (native.renameat(directory, cstring(temporary), directory, cstring(name)) < 0) throw failure()
+        renamed = true
+        sync(directory)
+      } finally {
+        closeSync(fd)
+        if (!renamed) native.unlinkat(directory, cstring(temporary), 0)
+      }
+    })
+  }
+}
+
+export const atomicWriteFile = createAtomicWriter()
+
+export const ensurePrivateDirectory = ({
+  root,
+  path = root,
+  mode = 0o700,
+}: {
+  root: string
+  path?: string
+  mode?: number
+}): void =>
+  withDirectory(root, pathParts(root, path), (fd) => {
+    fchmodSync(fd, mode)
+    fsyncSync(fd)
+  })
+
+export const readPrivateFile = ({
+  root,
+  path,
+  maxBytes,
+}: {
+  root: string
+  path: string
+  maxBytes?: number
+}): Buffer | null => {
+  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 1))
+    throw new RangeError("O limite de bytes deve ser positivo")
+  const parts = pathParts(root, path)
+  const name = parts.pop()
+  if (!name) throw new TouriError("TOURI-E2000")
+  return withDirectory(root, parts, (directory) => {
+    const fd = existingFile(directory, name)
+    if (fd === null) return null
+    try {
+      if (maxBytes !== undefined) {
+        const size = fstatSync(fd).size
+        const start = Math.max(0, size - maxBytes)
+        const bytes = Buffer.alloc(Math.min(size, maxBytes))
+        let offset = 0
+        while (offset < bytes.byteLength) {
+          const count = readSync(fd, bytes, offset, bytes.byteLength - offset, start + offset)
+          if (count === 0) break
+          offset += count
+        }
+        return bytes.subarray(0, offset)
+      }
+      return readFileSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+  })
+}
+
+/** Logs are bounded by their callers; replace the snapshot to avoid partial lines. */
+export const atomicAppendFile = ({ root, path, content, maxBytes, mode }: FileWrite & { maxBytes?: number }): void => {
+  if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < 1))
+    throw new RangeError("O limite de bytes deve ser positivo")
+  const previous =
+    readPrivateFile({
+      root,
+      path,
+      ...(maxBytes === undefined ? {} : { maxBytes: Math.min(Number.MAX_SAFE_INTEGER, maxBytes + 1) }),
+    }) ?? Buffer.alloc(0)
+  const bytes = typeof content === "string" ? Buffer.from(content) : content
+  const combined = Buffer.concat([previous, bytes])
+  const overflow = maxBytes === undefined ? 0 : Math.max(0, combined.byteLength - maxBytes)
+  // Retain complete log lines when the snapshot reaches its byte limit.
+  const start = overflow === 0 || combined[overflow - 1] === 10 ? overflow : combined.indexOf(10, overflow) + 1
+  const bounded = overflow > 0 && start === 0 ? Buffer.alloc(0) : combined.subarray(start)
+  atomicWriteFile({ root, path, content: bounded, ...(mode === undefined ? {} : { mode }) })
+}
+
+export const assertPrivateFile = ({ root, path, mode }: { root: string; path: string; mode?: number }): void => {
+  const parts = pathParts(root, path)
+  const name = parts.pop()
+  if (!name) throw new TouriError("TOURI-E2000")
+  withDirectory(root, parts, (directory) => {
+    const fd = existingFile(directory, name)
+    if (fd === null) return
+    try {
+      if (mode !== undefined) {
+        fchmodSync(fd, mode)
+        fsyncSync(fd)
+      }
+    } finally {
+      closeSync(fd)
+    }
+  })
+}
+
+export const removePrivateFile = ({ root, path }: { root: string; path: string }): void => {
+  const parts = pathParts(root, path)
+  const name = parts.pop()
+  if (!name) throw new TouriError("TOURI-E2000")
+  withDirectory(root, parts, (fd) => {
+    validateTarget(fd, name)
+    if (native.unlinkat(fd, cstring(name), 0) < 0 && errno() !== 2) throw failure()
+    fsyncSync(fd)
+  })
+}
+
+export const movePrivateFile = ({ root, from, to }: { root: string; from: string; to: string }): void => {
+  const source = pathParts(root, from)
+  const target = pathParts(root, to)
+  const sourceName = source.pop()
+  const targetName = target.pop()
+  if (!sourceName || !targetName) throw new TouriError("TOURI-E2000")
+  withDirectory(root, source, (sourceFd) =>
+    withDirectory(root, target, (targetFd) => {
+      validateTarget(sourceFd, sourceName)
+      validateTarget(targetFd, targetName)
+      if (native.renameat(sourceFd, cstring(sourceName), targetFd, cstring(targetName)) < 0) throw failure()
+      fsyncSync(targetFd)
+      fsyncSync(sourceFd)
+    }),
+  )
+}
+
+/** SQLite retains its own WAL/transaction protocol; never rename a live database. */
+export const prepareDatabaseFile = ({ root, path }: { root: string; path: string }): string => {
+  for (const suffix of ["", "-wal", "-shm", "-journal"])
+    assertPrivateFile({ root, path: `${path}${suffix}`, mode: 0o600 })
+  if (!existsSync(path)) atomicWriteFile({ root, path, content: "" })
+  // Canonicalize only ancestors outside the app root (including macOS /var).
+  // Keep the root and filename intact for SQLite's own NOFOLLOW checks.
+  const absoluteRoot = resolve(root)
+  return resolve(realpathSync(dirname(absoluteRoot)), basename(absoluteRoot), ...pathParts(root, path))
+}

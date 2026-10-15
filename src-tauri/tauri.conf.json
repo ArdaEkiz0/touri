@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "touri",
+  "version": "0.1.0",
+  "identifier": "ai.touri.desktop",
+  "build": {
+    "beforeDevCommand": "bun --cwd ui dev",
+    "beforeBuildCommand": "bun --cwd ui build",
+    "devUrl": "http://localhost:1420",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "touri",
+        "visible": false,
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://tauri.localhost http://127.0.0.1:* ws://127.0.0.1:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "resources": { "../THIRD_PARTY_NOTICES": "THIRD_PARTY_NOTICES" },
+    "externalBin": ["binaries/touri-sidecar"],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "createUpdaterArtifacts": false,
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "hardenedRuntime": true,
+      "entitlements": "Entitlements.plist"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "DISABLED_UNTIL_SIGNING_IS_CONFIGURED",
+      "endpoints": ["https://github.com/touri-desktop/touri-desktop/releases/latest/download/latest.json"]
+    }
+  }
+}

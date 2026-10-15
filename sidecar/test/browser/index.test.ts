@@ -1,0 +1,154 @@
+import { expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import type { ToolRegistration } from "@touri/contracts"
+import { init, withToolDeadline } from "../../src/browser"
+import { createBrowserEngine } from "../../src/browser/engine"
+import { createKernel } from "../../src/kernel"
+import { init as initStore } from "../../src/store"
+import "./test-helper"
+
+test("browser init registers its routes and optional tab service", async () => {
+  const root = mkdtempSync(join(tmpdir(), "touri-wp6-index-"))
+  const runtime = createKernel({ appData: root })
+  try {
+    await init(runtime.kernel)
+    const tabsForBot = runtime.kernel.services.use("browser.tabsForBot")
+    expect(tabsForBot?.({ botId: "bot-with-no-tabs" })).toEqual([])
+
+    const baseUrl = `http://127.0.0.1:${runtime.handshake.port}`
+    const tabsResponse = await fetch(`${baseUrl}/api/v1/browser/tabs`, {
+      headers: { Authorization: "Bearer dev-ui-token", Origin: "tauri://localhost" },
+    })
+    expect(tabsResponse.status).toBe(200)
+    expect(await tabsResponse.json()).toEqual({ tabs: [] })
+
+    const takeoverResponse = await fetch(`${baseUrl}/api/v1/browser/tabs/missing/takeover`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer dev-ui-token",
+        Origin: "tauri://localhost",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ hold: false }),
+    })
+    expect(takeoverResponse.status).toBe(404)
+  } finally {
+    runtime.stop()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("chat browser preview validates bot and running source without launching a browser or VM", async () => {
+  const root = mkdtempSync(join(tmpdir(), "touri-browser-preview-"))
+  const runtime = createKernel({ appData: root })
+  try {
+    await initStore(runtime.kernel)
+    await init(runtime.kernel)
+    const request = (path: string, body?: unknown) =>
+      fetch(`http://127.0.0.1:${runtime.handshake.port}/api/v1${path}`, {
+        method: body ? "POST" : "GET",
+        headers: { Authorization: "Bearer dev-ui-token", "x-touri-client": "preview-test" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      })
+    expect((await request("/bots/missing/browser-preview")).status).toBe(404)
+    const local = (await (await request("/bots", { name: "Local", machine: "local", provider: "codex" })).json()) as {
+      bot: { id: string }
+    }
+    expect((await request(`/bots/${local.bot.id}/browser-preview`)).status).toBe(409)
+    ;(runtime.kernel.db as { run: (sql: string, ...args: string[]) => unknown }).run(
+      "UPDATE bots SET machine = 'vm' WHERE id = ?",
+      local.bot.id,
+    )
+    expect((await request(`/bots/${local.bot.id}/browser-preview`)).status).toBe(409)
+    let launches = 0
+    const engine = createBrowserEngine({
+      kernel: runtime.kernel,
+      launcher: {
+        start: async () => {
+          launches++
+          return null
+        },
+        stop: async () => {},
+      },
+    })
+    expect(await engine.preview({ botId: local.bot.id, signal: new AbortController().signal })).toBeNull()
+    expect(launches).toBe(0)
+    await engine.shutdown()
+  } finally {
+    runtime.emitHostNotification({ method: "app.willQuit", params: {} })
+    runtime.stop()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("a browser tool answers within its timeoutMs even when the engine never settles", async () => {
+  let aborted: AbortSignal | null = null
+  let budget = 0
+  const started = Date.now()
+  const result = await withToolDeadline({
+    ctx: { signal: new AbortController().signal },
+    timeoutMs: 400,
+    run: ({ signal, budgetMs }) => {
+      aborted = signal
+      budget = budgetMs
+      return new Promise(() => {})
+    },
+  })
+  expect(Date.now() - started).toBeLessThan(600)
+  expect(result).toMatchObject({ success: false, errorCode: "DEADLINE_EXCEEDED" })
+  expect(JSON.stringify(result)).toContain("timeoutMs")
+  expect(budget).toBeLessThan(400)
+  expect((aborted as AbortSignal | null)?.aborted).toBe(true)
+})
+
+test("the engine budget leaves room for its own cause before the tool deadline", async () => {
+  const budgets: Array<number> = []
+  for (const timeoutMs of [1, 1000, 20000, 30000])
+    await withToolDeadline({
+      ctx: { signal: new AbortController().signal },
+      timeoutMs,
+      run: async ({ budgetMs }) => {
+        budgets.push(budgetMs)
+        return { success: true, content: [] }
+      },
+    })
+  expect(budgets).toEqual([1, 750, 17500, 27500])
+})
+
+test("the last failed browser tool of a bot is exposed to the screen viewers", async () => {
+  const root = mkdtempSync(join(tmpdir(), "touri-browser-failure-"))
+  const runtime = createKernel({ appData: root })
+  const handlers = new Map<string, ToolRegistration>()
+  const register = runtime.kernel.registerTools
+  runtime.kernel.registerTools = (input) => {
+    for (const tool of input.tools) handlers.set(tool.name, tool)
+    return register(input)
+  }
+  try {
+    await init(runtime.kernel)
+    const ctx = {
+      botId: "bot-1",
+      threadId: "t",
+      runId: null,
+      projectId: null,
+      cwd: root,
+      signal: new AbortController().signal,
+    }
+    const failed = await handlers.get("browser_snapshot")?.handler({ ctx, args: { tabId: "t_missing" } })
+    expect(failed?.success).toBe(false)
+    const response = await fetch(`http://127.0.0.1:${runtime.handshake.port}/api/v1/browser/tabs?botId=bot-1`, {
+      headers: { Authorization: "Bearer dev-ui-token", Origin: "tauri://localhost" },
+    })
+    const body = (await response.json()) as { lastFailure: { tool: string; errorCode: string; error: string } | null }
+    expect(body.lastFailure).toMatchObject({
+      tool: "browser_snapshot",
+      errorCode: failed?.success ? "" : failed?.errorCode,
+    })
+    expect(body.lastFailure?.error.length).toBeGreaterThan(0)
+  } finally {
+    runtime.stop()
+    rmSync(root, { recursive: true, force: true })
+  }
+})

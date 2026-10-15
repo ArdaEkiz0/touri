@@ -1,0 +1,72 @@
+import { mkdir } from "node:fs/promises"
+import { expect, test } from "@playwright/test"
+
+test.use({ channel: "chromium" })
+const phase = process.env.R8_SIDEBAR_PHASE ?? "after"
+const output = "../docs/qa/r8/sidebar"
+
+for (const width of [1440, 1100]) {
+  for (const theme of ["light", "dark"]) {
+    test(`${phase}: sidebar ${theme} ${width}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ reducedMotion: "reduce" })
+      await page.clock.setFixedTime(new Date("2026-10-13T15:00:00Z"))
+      await page.addInitScript((value) => localStorage.setItem("touri.appearance.v1", value), theme)
+      await page.goto("/test/e2e/r8-sidebar-harness.html")
+      await expect(page.getByRole("textbox", { name: "Mensagem para touri-qa" })).toBeVisible()
+      await page.evaluate(() => document.fonts.ready)
+      if (phase === "after") {
+        const sidebar = page.locator(".bot-sidebar")
+        expect(await sidebar.evaluate((element) => element.scrollWidth - element.clientWidth)).toBeLessThanOrEqual(0)
+        const lastRow = await sidebar.locator(".bot-row").last().boundingBox()
+        const footer = await sidebar.locator(".sidebar-footer").boundingBox()
+        expect(lastRow && footer && lastRow.y + lastRow.height <= footer.y).toBeTruthy()
+        await expect(sidebar.locator(".thread-row.selected small")).toHaveText("hoje")
+        await expect(sidebar.locator(".thread-row small").nth(1)).toHaveText("ontem")
+        await expect(sidebar.locator(".bot-entry").filter({ hasText: "touri-pm" }).locator(".bot-preview")).toHaveText(
+          "Digitar filtro · Conferir os resultados",
+        )
+        await expect(sidebar.getByRole("button", { name: "Revisar aprovação de seo" })).toBeVisible()
+        await expect(sidebar.getByRole("button", { name: "Abrir falha de mobile-qa" })).toBeVisible()
+      }
+      await mkdir(output, { recursive: true })
+      await page.screenshot({ path: `${output}/${phase}-bots-${width}-${theme}.png` })
+      await page.getByRole("button", { name: /^Notificações/ }).click()
+      await expect(page.getByRole("region", { name: "Central de notificações" })).toBeVisible()
+      await page.screenshot({ path: `${output}/${phase}-notifications-${width}-${theme}.png` })
+      if (phase === "after") {
+        const center = page.getByRole("region", { name: "Central de notificações" })
+        await expect(center.locator(".notification-row").first()).toContainText("Checklist de publicação revisado")
+        await expect(page.getByRole("button", { name: "Notificações, 1 precisa de atenção" })).toBeVisible()
+        await center
+          .locator(".notification-row")
+          .filter({ hasText: "mobile-qa" })
+          .getByRole("button", { name: "Abrir", exact: true })
+          .click()
+        await expect(page.getByRole("textbox", { name: "Mensagem para mobile-qa" })).toBeVisible()
+        await expect(page.getByRole("button", { name: "Notificações", exact: true })).toBeVisible()
+        await expect(page.getByRole("button", { name: "Abrir falha de mobile-qa" })).toHaveCount(0)
+        await page.getByRole("button", { name: "Buscar conversas", exact: true }).click()
+        const search = page.getByRole("dialog", { name: "Paleta de comandos" })
+        await search.getByRole("combobox").fill("page.tsx")
+        await expect(search.getByText("Há 21 arquivos page.tsx para revisar.")).toBeVisible()
+        await page.screenshot({ path: `${output}/after-search-${width}-${theme}.png` })
+        await page.keyboard.press("Escape")
+        await page.getByRole("button", { name: "Conectar aplicativos" }).click()
+        await expect(page.getByRole("heading", { name: "Integrações", exact: true })).toBeVisible()
+        await page.locator(".bot-entry").filter({ hasText: "touri-qa" }).locator(".bot-row-main").click()
+        await expect(page.getByRole("textbox", { name: "Mensagem para touri-qa" })).toBeVisible()
+        await page.getByRole("button", { name: "Criar bot", exact: true }).click()
+        await expect(page.getByRole("dialog", { name: "Criar um bot" })).toBeVisible()
+        await page.getByRole("dialog", { name: "Criar um bot" }).getByRole("button", { name: "Fechar diálogo" }).click()
+        // The base panel overlays the chat toolbar at narrow widths; close it through its existing affordance.
+        if (width === 1100) await page.getByRole("button", { name: "Fechar painel do bot" }).click()
+        await page.getByRole("button", { name: "Preview do projeto" }).click()
+        await expect(page.getByRole("button", { name: "Voltar ao chat" })).toBeVisible()
+        await page.locator(".bot-entry").filter({ hasText: "touri-coder" }).locator(".bot-row-main").click()
+        await expect(page.getByRole("button", { name: "Voltar ao chat" })).toBeVisible()
+        await expect(page.locator(".bot-row.selected .tb-avatar")).toHaveAttribute("data-bot-id", "sidebar-bot-3")
+      }
+    })
+  }
+}

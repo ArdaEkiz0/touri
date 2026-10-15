@@ -1,0 +1,79 @@
+/* Alternate input and system palettes share the same controls and readable status copy. */
+@media (pointer: coarse) {
+  :is(.bot-sidebar, .chat-toolbar, .bot-panel, .bot-panel-tabs, .bot-context-menu, .tool-card, .composer)
+    :is(button, summary),
+  .activity-approval-link {
+    min-width: var(--touch-target-size) !important;
+    min-height: var(--touch-target-size) !important;
+  }
+  .bot-sidebar .bot-settings {
+    opacity: 1;
+  }
+  .bot-sidebar
+    :is(.sidebar-icon-button, .bot-settings, .bot-row-menu, .thread-row-menu, .sidebar-brand, .sidebar-bots-link) {
+    flex-shrink: 0;
+  }
+  .activity-approval-link {
+    display: inline-flex;
+    align-items: center;
+  }
+  .tool-details > summary {
+    align-content: center;
+  }
+  .bot-sidebar .traffic-light-row {
+    height: auto;
+    min-height: var(--touch-target-size);
+    flex-basis: auto;
+  }
+}
+
+@media (forced-colors: active) {
+  :root
+    body
+    :is(
+      .tool-card,
+      .tool-status-chip,
+      .tool-decision-chip,
+      .tool-exit-chip,
+      .tool-file-chip,
+      .tool-code-region,
+      .bot-context-menu
+    ) {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+  }
+  .tool-card[data-tool-status="pending"] {
+    border-style: dashed;
+  }
+  .approval-standing {
+    border-style: double;
+    border-width: 3px;
+  }
+  :root body .tool-action {
+    color: ButtonText;
+    background: ButtonFace;
+    border-color: ButtonText;
+  }
+  :root body .tool-action:disabled {
+    color: GrayText;
+    border-color: GrayText;
+    opacity: 1;
+  }
+  :root body .activity-mark {
+    color: CanvasText;
+  }
+  :root body .activity-approval-link {
+    color: LinkText;
+    text-decoration-color: currentColor;
+  }
+  :root body :is(button, a, summary, input, textarea, select, [tabindex]):focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 3px;
+  }
+  :root body .tool-card:focus {
+    outline: 2px solid Highlight;
+    outline-offset: 3px;
+  }
+}

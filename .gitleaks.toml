@@ -1,0 +1,15 @@
+title = "touri gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic values used by tests: redaction fixtures, DNS packet builders and WebSocket handshake keys"
+paths = [
+  '''sidecar/test/security/redaction\.test\.ts''',
+  '''sidecar/test/reports/reports\.test\.ts''',
+  '''sidecar/test/vm/gateway-security\.test\.ts''',
+  '''sidecar/test/vm/egress-policy\.test\.ts''',
+]
+regexTarget = "line"
+regexes = ['''Sec-WebSocket-Key: ''']

@@ -1,0 +1,17 @@
+[Unit]
+Description=touri headless server
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=touri
+WorkingDirectory=/home/touri
+Environment=HOME=/home/touri
+Environment=PATH=/home/touri/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/touri/.local/bin/touri serve --tailscale --data-dir /home/touri/.touri-desktop
+Restart=always
+RestartSec=5
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target

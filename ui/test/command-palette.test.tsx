@@ -1,0 +1,266 @@
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import type { ApprovalPart } from "@touri/contracts"
+import { afterEach, expect, it } from "vitest"
+import App from "../src/App"
+import { createMockApi } from "../src/api/mock"
+import { matchScore, normalizeSearch, queryTokens } from "../src/features/commandPalette/fuzzy"
+import { buildPaletteIndex, searchPalette } from "../src/features/commandPalette/paletteItems"
+import { SETTINGS, settingsIndex } from "../src/features/commandPalette/settingsRegistry"
+
+afterEach(cleanup)
+
+const DIALOG = "Paleta de comandos"
+const INPUT = "Buscar bots, conversas e configurações"
+
+const start = async (api = createMockApi()) => {
+  render(<App kernel={{ services: { api } }} />)
+  const composer = await screen.findByRole("textbox", { name: "Mensagem para mark" })
+  return { api, composer }
+}
+
+const openPalette = (): HTMLElement => {
+  fireEvent.keyDown(window, { key: "k", metaKey: true })
+  return screen.getByRole("combobox", { name: INPUT })
+}
+
+const search = (query: string): HTMLElement => {
+  const input = openPalette()
+  fireEvent.change(input, { target: { value: query } })
+  return input
+}
+
+const activeOption = (input: HTMLElement): HTMLElement | null => {
+  const id = input.getAttribute("aria-activedescendant")
+  return id ? document.getElementById(id) : null
+}
+
+const closed = async (): Promise<void> => {
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: DIALOG })).toBeNull())
+}
+
+it("normalizes accents and case and fuzzy-matches labels", () => {
+  expect(normalizeSearch("  Configuração  DO Bot ")).toBe("configuracao do bot")
+  expect(
+    matchScore(queryTokens("configuracao"), { label: normalizeSearch("Configuração"), extra: "" }),
+  ).toBeGreaterThan(0)
+  expect(
+    matchScore(queryTokens("memria"), { label: normalizeSearch("Memória por computador"), extra: "" }),
+  ).toBeGreaterThan(0)
+  expect(matchScore(queryTokens("xyz"), { label: normalizeSearch("Memória"), extra: "" })).toBe(0)
+  const settings = settingsIndex({ cloudEnabled: false, hasBot: true })
+  const index = buildPaletteIndex({ bots: [], threads: [], settings, hasBot: true })
+  const groups = searchPalette({ index, query: "notificacoes", messages: [], recentIds: [] })
+  expect(groups[0]?.items[0]?.label).toBe("Notificações")
+  expect(settings.some((entry) => entry.label === SETTINGS.sidebarFloatUpdates.label)).toBe(true)
+  expect(settings.some((entry) => entry.label === "Nuvem")).toBe(false)
+})
+
+it("⌘K and Ctrl+K open, ⌘K toggles closed, and plain typing in the composer never opens it", async () => {
+  const { composer } = await start()
+  fireEvent.keyDown(composer, { key: "k" })
+  expect(screen.queryByRole("dialog", { name: DIALOG })).toBeNull()
+  const input = openPalette()
+  expect(screen.getByRole("dialog", { name: DIALOG })).toBeVisible()
+  expect(input).toHaveFocus()
+  expect(input).toHaveAttribute("aria-expanded", "true")
+  fireEvent.keyDown(input, { key: "k", metaKey: true })
+  await closed()
+  act(() => composer.focus())
+  fireEvent.keyDown(composer, { key: "k", ctrlKey: true })
+  expect(screen.getByRole("combobox", { name: INPUT })).toHaveFocus()
+})
+
+it("Esc closes the palette and returns focus to where it was", async () => {
+  const { composer } = await start()
+  act(() => composer.focus())
+  const input = openPalette()
+  expect(input).toHaveFocus()
+  fireEvent.keyDown(input, { key: "Escape" })
+  await closed()
+  expect(composer).toHaveFocus()
+})
+
+it("shows recent conversations and actions with an empty query, then remembers what was opened", async () => {
+  await start()
+  openPalette()
+  const dialog = screen.getByRole("dialog", { name: DIALOG })
+  expect(within(dialog).getByRole("group", { name: "Conversas recentes" })).toBeVisible()
+  expect(within(dialog).getByRole("option", { name: /Novo bot/ })).toBeVisible()
+  expect(within(dialog).queryByRole("group", { name: "Recentes" })).toBeNull()
+  const input = screen.getByRole("combobox", { name: INPUT })
+  fireEvent.change(input, { target: { value: "panko" } })
+  fireEvent.keyDown(input, { key: "Enter" })
+  await closed()
+  openPalette()
+  const recent = screen.getByRole("group", { name: "Recentes" })
+  expect(within(recent).getByRole("option", { name: /Panko/ })).toBeVisible()
+})
+
+it("arrow keys move the highlighted option, wrap, announce counts, and Enter opens a bot", async () => {
+  await start()
+  const input = search("o")
+  const options = screen.getAllByRole("option")
+  expect(options.length).toBeGreaterThan(2)
+  expect(screen.getByRole("status")).toHaveTextContent(`${options.length} resultados`)
+  expect(activeOption(input)).toBe(options[0])
+  expect(options[0]).toHaveAttribute("aria-selected", "true")
+  fireEvent.keyDown(input, { key: "ArrowDown" })
+  expect(activeOption(input)).toBe(options[1])
+  expect(options[0]).toHaveAttribute("aria-selected", "false")
+  fireEvent.keyDown(input, { key: "ArrowUp" })
+  fireEvent.keyDown(input, { key: "ArrowUp" })
+  expect(activeOption(input)).toBe(options.at(-1))
+  fireEvent.mouseMove(options[1] as HTMLElement)
+  expect(activeOption(input)).toBe(options[1])
+  fireEvent.change(input, { target: { value: "panko" } })
+  expect(activeOption(input)).toHaveTextContent("Panko")
+  fireEvent.keyDown(input, { key: "Enter" })
+  await closed()
+  await waitFor(() =>
+    expect(document.querySelector(".bot-row.selected .tb-avatar")).toHaveAttribute("data-bot-id", "bot-panko"),
+  )
+})
+
+it("Tab stays inside the palette", async () => {
+  await start()
+  const input = openPalette()
+  fireEvent.keyDown(input, { key: "Tab" })
+  fireEvent.keyDown(input, { key: "Tab", shiftKey: true })
+  expect(screen.getByRole("dialog", { name: DIALOG })).toContainElement(document.activeElement as HTMLElement)
+})
+
+it("opens a conversation by its title and clicking a result works", async () => {
+  await start()
+  search("welcome")
+  const option = within(screen.getByRole("group", { name: "Conversas" })).getByRole("option", { name: /Welcome/ })
+  fireEvent.click(option)
+  await closed()
+  await screen.findByRole("textbox", { name: "Mensagem para onb" })
+})
+
+it("opens a specific setting, focusing and highlighting it on the right tab", async () => {
+  await start()
+  const input = search("memoria vm")
+  expect(activeOption(input)).toHaveTextContent(SETTINGS.vmMemory.label)
+  fireEvent.keyDown(input, { key: "Enter" })
+  const dialog = await screen.findByRole("dialog", { name: "Configurações" })
+  expect(within(dialog).getByRole("tab", { name: "Geral" })).toHaveAttribute("aria-selected", "true")
+  const field = within(dialog).getByLabelText(SETTINGS.vmMemory.label)
+  await waitFor(() => expect(field).toHaveFocus())
+  expect(field.closest("[data-setting-id]")).toHaveAttribute("data-setting-highlight", "true")
+})
+
+it("finds the sidebar ordering preference without the accent and lands on its switch", async () => {
+  await start()
+  const input = search("mover bots novidades")
+  expect(activeOption(input)).toHaveTextContent("Mover bots com novidades para o topo")
+  fireEvent.keyDown(input, { key: "Enter" })
+  const dialog = await screen.findByRole("dialog", { name: "Configurações" })
+  expect(within(dialog).getByRole("tab", { name: "Aparência" })).toHaveAttribute("aria-selected", "true")
+  await waitFor(() =>
+    expect(within(dialog).getByRole("switch", { name: "Mover bots com novidades para o topo" })).toHaveFocus(),
+  )
+})
+
+it("navigates to pages and runs creation actions", async () => {
+  await start()
+  fireEvent.keyDown(search("integracoes"), { key: "Enter" })
+  expect(await screen.findByRole("heading", { name: "Integrações" })).toBeVisible()
+  fireEvent.keyDown(search("novo grupo"), { key: "Enter" })
+  expect(await screen.findByRole("dialog", { name: /grupo/i })).toBeVisible()
+})
+
+it("never approves: approval cards are not palette results and Enter in the palette leaves them pending", async () => {
+  const api = createMockApi()
+  const message = api.getState().messages.find((row) => row.threadId === "thread-mark" && row.role === "assistant")
+  if (!message) throw new Error("Fixture indisponível")
+  const approval: ApprovalPart = {
+    type: "approval",
+    approvalId: "approval-palette",
+    request: "permission",
+    detail: "Executar comando aprovar",
+    decision: "pending",
+    allowStanding: true,
+  }
+  message.kind = "approval"
+  message.parts = [approval]
+  await start(api)
+  const approve = await screen.findByRole("button", { name: "Aprovar" })
+  act(() => approve.focus())
+  for (const query of ["aprovar", "Executar comando", "sempre neste bot"]) {
+    search(query)
+    const labels = screen.queryAllByRole("option").map((option) => option.textContent ?? "")
+    expect(labels.some((label) => /^Aprovar|Executar comando|Sempre neste bot/.test(label))).toBe(false)
+    fireEvent.keyDown(window, { key: "Escape" })
+    await closed()
+    expect(approve).toHaveFocus()
+  }
+  fireEvent.keyDown(search("mark"), { key: "Enter" })
+  await closed()
+  expect(api.calls.some((call) => call.route.startsWith("POST /approvals"))).toBe(false)
+  expect(screen.getByRole("button", { name: "Aprovar" })).toBeVisible()
+})
+
+it("does not open over another dialog", async () => {
+  await start()
+  fireEvent.click(screen.getByRole("button", { name: "Criar bot" }))
+  expect(screen.getByRole("dialog", { name: "Criar um bot" })).toBeVisible()
+  fireEvent.keyDown(window, { key: "k", metaKey: true })
+  expect(screen.queryByRole("dialog", { name: DIALOG })).toBeNull()
+})
+
+it("opens bot-scoped settings such as the provider login on the bot's Computer tab", async () => {
+  await start()
+  const input = search("login do provedor")
+  expect(activeOption(input)).toHaveTextContent(SETTINGS.providerLogin.label)
+  fireEvent.keyDown(input, { key: "Enter" })
+  const dialog = await screen.findByRole("dialog", { name: "Configurações de mark" })
+  expect(within(dialog).getByRole("tab", { name: "Computador" })).toHaveAttribute("aria-selected", "true")
+})
+
+it("keeps results bounded with hundreds of bots and threads", () => {
+  const state = createMockApi().getState()
+  const [bot] = state.bots
+  const [thread] = state.threads
+  if (!bot || !thread) throw new Error("Fixture indisponível")
+  const bots = Array.from({ length: 600 }, (_, index) => ({ ...bot, id: `bot-${index}`, name: `agente ${index}` }))
+  const threads = Array.from({ length: 3000 }, (_, index) => ({
+    ...thread,
+    id: `thread-${index}`,
+    botId: `bot-${index % 600}`,
+    title: `Revisão ${index}`,
+    updatedAt: index,
+  }))
+  const index = buildPaletteIndex({ bots, threads, settings: [], hasBot: true })
+  const groups = searchPalette({ index, query: "agente 59", messages: [], recentIds: [] })
+  const botGroup = groups.find((group) => group.id === "bots")
+  expect(botGroup?.items).toHaveLength(8)
+  expect(botGroup?.items[0]?.label).toBe("agente 59")
+  const revisions = searchPalette({ index, query: "revisao", messages: [], recentIds: [] })
+  expect(revisions.find((group) => group.id === "threads")?.items[0]?.label).toBe("Revisão 2999")
+})
+
+it("R13-05 ranks an exact action or setting above older message matches, messages last", () => {
+  const api = createMockApi()
+  const state = api.getState()
+  const bot = state.bots[0]
+  const thread = state.threads[0]
+  if (!bot || !thread) throw new Error("fixture")
+  const settings = settingsIndex({ cloudEnabled: false, hasBot: true })
+  const index = buildPaletteIndex({ bots: [bot], threads: [thread], settings, hasBot: true })
+  const message = (text: string, id: string) => ({
+    message: { id, threadId: thread.id, text, createdAt: 1 } as never,
+    thread,
+    text: normalizeSearch(text),
+  })
+  const messages = [message("Quero um novo bot para o time de vendas", "m1"), message("memoria da VM esta cheia", "m2")]
+  const novo = searchPalette({ index, query: "Novo bot", messages, recentIds: [] })
+  expect(novo[0]?.id).toBe("actions")
+  expect(novo[0]?.items[0]?.label).toBe("Novo bot")
+  expect(novo.at(-1)?.id).toBe("messages")
+  const memoria = searchPalette({ index, query: "memoria da VM", messages, recentIds: [] })
+  expect(memoria[0]?.id).toBe("settings")
+  expect(memoria.at(-1)?.id).toBe("messages")
+  const only = searchPalette({ index, query: "vendas", messages, recentIds: [] })
+  expect(only.map((group) => group.id)).toEqual(["messages"])
+})

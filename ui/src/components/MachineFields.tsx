@@ -1,0 +1,252 @@
+import type { Bot, MachineCapability, MachineState } from "@touri/contracts"
+import { useEffect, useRef, useState } from "react"
+import { userFacingError } from "../errors"
+import { machineStatusLabel, t } from "../i18n"
+import { machineStateForDisplay } from "../machineState"
+import { SettingsRow, SettingsSwitch } from "./SettingsLayout"
+
+type MachineValues = Pick<Bot, "machine" | "machineIdleMinutes" | "vmProviderLogin" | "hostComputerUse">
+export const MachineFields = ({
+  values,
+  provider,
+  cloudConnected = false,
+  capability,
+  state: rawState,
+  onChange,
+  onAction,
+  activeTurns = false,
+}: {
+  values: MachineValues
+  provider: Bot["provider"]
+  cloudConnected?: boolean
+  capability?: MachineCapability
+  state?: MachineState
+  onChange: (patch: Partial<MachineValues>) => void
+  onAction?: (reset: boolean, stopTurns?: boolean) => Promise<void>
+  activeTurns?: boolean
+}) => {
+  const state = machineStateForDisplay(rawState)
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [confirmRestart, setConfirmRestart] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const resetTrigger = useRef<HTMLButtonElement>(null)
+  const restartTrigger = useRef<HTMLButtonElement>(null)
+  const resetRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!confirmReset) return
+    resetRef.current?.scrollIntoView?.({ block: "nearest" })
+    resetRef.current?.querySelector<HTMLButtonElement>(".button-quiet")?.focus({ preventScroll: true })
+  }, [confirmReset])
+  const restartRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!confirmRestart) return
+    restartRef.current?.scrollIntoView?.({ block: "nearest" })
+    restartRef.current?.querySelector<HTMLButtonElement>(".button-quiet")?.focus({ preventScroll: true })
+  }, [confirmRestart])
+  const action = async (reset: boolean, stopTurns = false) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onAction?.(reset, stopTurns)
+      setConfirmReset(false)
+      setConfirmRestart(false)
+    } catch (error) {
+      const message = userFacingError(error)
+      if (!reset && !stopTurns && message.includes("Máquina ocupada")) setConfirmRestart(true)
+      else setError(message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <section className="machine-settings" aria-label="Computador">
+      <h3>Computador</h3>
+      <div className="machine-environment-row">
+        <div className="machine-environment-copy">
+          <label htmlFor="bot-machine">{t("Machine")}</label>
+          <p className="field-help">
+            {values.machine === "cloud"
+              ? "O runtime inteiro roda na nuvem, com sua chave API e sem depender do Mac."
+              : values.machine === "local"
+                ? t("Local machine help")
+                : t("VM machine help")}
+          </p>
+        </div>
+        <div className="machine-environment-control">
+          {values.machine === "cloud" && (
+            <p className="field-help">Runtime inteiro na nuvem · chave API própria · sem acesso ao Mac.</p>
+          )}
+          {values.machine === "vm" && (
+            <span className={`machine-chip machine-${state?.status ?? "stopped"}`} role="status">
+              {machineStatusLabel(state?.status ?? "stopped", state?.pauseReason)}
+            </span>
+          )}
+          <select
+            id="bot-machine"
+            value={values.machine}
+            onChange={(event) =>
+              onChange({
+                machine: event.target.value as Bot["machine"],
+                ...(event.target.value === "cloud" ? { vmProviderLogin: false, hostComputerUse: false } : {}),
+              })
+            }
+          >
+            {(cloudConnected || values.machine === "cloud") && (
+              <option value="cloud" disabled={provider === "opencode"}>
+                {provider === "opencode" ? "Na nuvem — OpenCode ainda indisponível" : "Na nuvem"}
+              </option>
+            )}
+            <option value="local">{t("Local machine")}</option>
+            <option value="vm" disabled={!capability?.available}>
+              {t("Isolated Linux VM")}
+              {!capability?.available ? ` — ${capability?.reason ?? t("No virtualization on this host")}` : ""}
+            </option>
+          </select>
+        </div>
+      </div>
+      {values.machine === "vm" && (
+        <>
+          <label className="machine-idle" htmlFor="machine-idle">
+            {t("Stop after idle minutes")}
+            <input
+              id="machine-idle"
+              type="number"
+              min={1}
+              max={1440}
+              value={values.machineIdleMinutes}
+              onChange={(event) => onChange({ machineIdleMinutes: Number(event.target.value) })}
+            />
+          </label>
+          <label className="toggle-row" htmlFor="machine-provider-login">
+            <span>
+              <strong>
+                {t("Use provider login in VM", {
+                  provider: provider === "opencode" ? "OpenCode" : provider === "codex" ? "Codex" : "Claude",
+                })}
+              </strong>
+              <small>{t("VM provider login help")}</small>
+            </span>
+            <SettingsSwitch
+              id="machine-provider-login"
+              checked={values.vmProviderLogin}
+              onChange={(event) => onChange({ vmProviderLogin: event.target.checked })}
+            />
+          </label>
+          <label className="toggle-row" htmlFor="machine-host-control">
+            <span>
+              <strong>{t("Allow host computer use")}</strong>
+              <small>{t("Host computer use help")}</small>
+            </span>
+            <SettingsSwitch
+              id="machine-host-control"
+              checked={values.hostComputerUse}
+              onChange={(event) => onChange({ hostComputerUse: event.target.checked })}
+            />
+          </label>
+          {state?.progress && (
+            <p className="machine-progress" aria-live="polite">
+              {state.progress}
+            </p>
+          )}
+          {(state?.error || error) && (
+            <p className="warning-callout" role="alert">
+              {!error && state?.status !== "error" ? "Erro anterior: " : ""}
+              {userFacingError(error ?? state?.error)}
+            </p>
+          )}
+          {state?.connection && (
+            <p className="field-help">
+              {state.connection.provider} · {state.memoryMb} MiB · {state.connection.machineId}
+            </p>
+          )}
+          {onAction && (
+            <div className="machine-actions">
+              <SettingsRow
+                title="Atualizar o computador do bot"
+                description="Reinicia a VM e aplica a imagem disponível. Os arquivos e logins são mantidos."
+              >
+                <button
+                  ref={restartTrigger}
+                  type="button"
+                  className="button button-quiet"
+                  disabled={busy}
+                  onClick={() => (activeTurns ? setConfirmRestart(true) : void action(false))}
+                >
+                  {busy && !confirmReset ? "Atualizando…" : "Atualizar o computador do Bot"}
+                </button>
+              </SettingsRow>
+              <SettingsRow
+                title="Redefinir o computador do bot"
+                description="Apaga os arquivos, sessões e logins da VM para começar de novo."
+              >
+                <button
+                  ref={resetTrigger}
+                  type="button"
+                  className="button settings-danger-button"
+                  disabled={busy}
+                  onClick={() => setConfirmReset(true)}
+                >
+                  {busy && confirmReset ? "Redefinindo…" : "Redefinir"}
+                </button>
+              </SettingsRow>
+            </div>
+          )}
+          {confirmReset && (
+            <div ref={resetRef} className="warning-callout" role="alertdialog" aria-label="Redefinir computador do bot">
+              <p>{t("Reset machine confirmation")}</p>
+              {activeTurns && <p>Os turnos em andamento deste bot também serão cancelados.</p>}
+              <button
+                type="button"
+                className="button settings-danger-button"
+                disabled={busy}
+                onClick={() => void action(true, activeTurns)}
+              >
+                {t("Delete and recreate")}
+              </button>
+              <button
+                type="button"
+                className="button button-quiet"
+                onClick={() => {
+                  setConfirmReset(false)
+                  resetTrigger.current?.focus()
+                }}
+              >
+                {t("Cancel")}
+              </button>
+            </div>
+          )}
+          {confirmRestart && (
+            <div
+              ref={restartRef}
+              className="warning-callout"
+              role="alertdialog"
+              aria-label="Parar turnos e reiniciar máquina"
+            >
+              <p>Há turnos em andamento nesta máquina. Parar todos os turnos deste bot e reiniciar?</p>
+              <button
+                type="button"
+                className="button button-brand"
+                disabled={busy}
+                onClick={() => void action(false, true)}
+              >
+                Parar turnos e reiniciar
+              </button>
+              <button
+                type="button"
+                className="button button-quiet"
+                disabled={busy}
+                onClick={() => {
+                  setConfirmRestart(false)
+                  restartTrigger.current?.focus()
+                }}
+              >
+                {t("Cancel")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  )
+}

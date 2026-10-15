@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# The switches are deliberately false until the project has an Apple team, a
+# GitHub repository, and a Tauri signing key. The guarded steps document the
+# release path without making unsigned local/tag builds depend on unavailable
+# credentials.
+env:
+  TOURI_ENABLE_SIGNING: "false"
+  TOURI_ENABLE_NOTARIZATION: "false"
+  TOURI_ENABLE_UPDATER: "false"
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.21
+      - run: bun install --frozen-lockfile
+      - run: bun run build:sidecar
+      - name: Build unsigned arm64 app
+        if: env.TOURI_ENABLE_SIGNING != 'true'
+        run: bunx tauri build --target aarch64-apple-darwin
+      - name: Build signed and notarized arm64 app
+        if: env.TOURI_ENABLE_SIGNING == 'true'
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_PATH: ${{ secrets.APPLE_API_KEY_PATH }}
+        run: bunx tauri build --target aarch64-apple-darwin
+      - name: Verify notarization and staple
+        if: env.TOURI_ENABLE_NOTARIZATION == 'true'
+        run: |
+          APP_PATH=$(find src-tauri/target -path '*/bundle/macos/*.app' -maxdepth 8 -print -quit)
+          DMG_PATH=$(find src-tauri/target -path '*/bundle/dmg/*.dmg' -maxdepth 8 -print -quit)
+          xcrun stapler staple "$DMG_PATH"
+          spctl -a -vv "$APP_PATH"
+      - name: Generate updater metadata and signature
+        if: env.TOURI_ENABLE_UPDATER == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: bunx tauri signer sign --private-key "$TAURI_SIGNING_PRIVATE_KEY" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" src-tauri/target/aarch64-apple-darwin/release/bundle/macos/touri.app.tar.gz
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: touri-${{ github.ref_name }}-arm64
+          path: |
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/macos/*.app.tar.gz
+            src-tauri/target/**/bundle/macos/*.sig
+            src-tauri/target/**/bundle/macos/latest.json

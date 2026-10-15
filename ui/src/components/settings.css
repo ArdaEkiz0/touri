@@ -1,0 +1,911 @@
+/* r8 settings: modal shell, sections, creation flow and diagnostics. */
+.modal-card.settings-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1000px, 100%);
+  height: min(760px, calc(100dvh - 64px));
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+  border-color: var(--border-dialog);
+  border-radius: var(--radius-18);
+}
+.settings-modal .modal-header {
+  flex: none;
+  align-items: center;
+  padding: var(--space-20) var(--space-28);
+  border-color: var(--border-divider);
+}
+.settings-modal .modal-header h2 {
+  font-size: var(--type-20);
+  letter-spacing: -0.4px;
+}
+.settings-modal .modal-close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-8);
+}
+.settings-modal .modal-close:hover {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+.settings-modal > .modal-actions,
+.bot-create-form > .modal-actions {
+  flex: none;
+  align-items: center;
+  min-height: 76px;
+  padding: var(--space-16) var(--space-28);
+  border-top: 1px solid var(--border-divider);
+  background: var(--surface-panel);
+}
+.settings-layout {
+  display: grid;
+  grid-template-columns: 204px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.settings-nav {
+  padding: var(--space-20) var(--space-12);
+  border-right: 1px solid var(--border-divider);
+  background: var(--surface-settings-nav);
+}
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  width: 100%;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-12);
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+.settings-nav button:hover {
+  background: var(--surface-settings-hover);
+  color: var(--text-primary);
+}
+.settings-nav button[aria-selected="true"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+.settings-nav button[aria-selected="true"] svg {
+  color: var(--accent-brand);
+}
+.settings-content {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.settings-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-28) var(--space-32);
+  scrollbar-gutter: stable;
+}
+.settings-pane > .settings-pane-heading {
+  opacity: calc(0.65 + var(--reveal) * 0.35);
+  transform: translateY(calc((1 - var(--reveal)) * 3px));
+  transition: --reveal var(--duration-standard) var(--ease-standard);
+}
+.settings-pane[hidden] {
+  display: none;
+}
+.settings-pane-heading {
+  margin-bottom: var(--space-24);
+}
+.settings-pane-heading h3 {
+  margin: 0 0 var(--space-8);
+  font-size: var(--type-20);
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.35px;
+}
+.settings-pane-heading p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--type-13);
+  line-height: var(--leading-body);
+}
+.settings-group {
+  margin-bottom: var(--space-24);
+}
+.settings-group > h4 {
+  margin: 0 0 var(--space-10);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+}
+.settings-group-card {
+  overflow: hidden;
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-24);
+  padding: var(--space-20);
+}
+.settings-row + .settings-row,
+.settings-group-card > .toggle-row + .toggle-row {
+  border-top: 1px solid var(--border-divider);
+}
+.settings-row-copy {
+  flex: 1;
+  min-width: 0;
+}
+.settings-row-copy label,
+.settings-row-copy strong {
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+.settings-row-copy p {
+  margin: var(--space-6) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-row-control {
+  flex: none;
+  max-width: 48%;
+}
+.settings-row-control select {
+  width: 230px;
+  max-width: 100%;
+}
+/* r8 settings review 2: native controls share tokens in either stylesheet order. */
+.settings-modal .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+  line-height: var(--leading-body);
+  min-height: 36px;
+  border-radius: var(--radius-8);
+}
+.settings-modal .button:hover {
+  filter: none;
+}
+.settings-modal .button-quiet,
+.settings-modal .button-dark {
+  border-color: var(--border-default);
+  background: var(--surface-settings-input);
+  color: var(--text-primary);
+}
+.settings-modal .button-quiet:hover:not(:disabled),
+.settings-modal .button-dark:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--surface-settings-hover);
+}
+.settings-modal .button-brand:hover:not(:disabled) {
+  background: var(--surface-settings-primary-hover);
+  border-color: var(--surface-settings-primary-hover);
+}
+.settings-modal .settings-danger-button:hover:not(:disabled) {
+  background: var(--surface-settings-danger-hover);
+}
+.modal-card.settings-modal input:not([type="checkbox"]),
+.modal-card.settings-modal select,
+.modal-card.settings-modal textarea {
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-default);
+  background: var(--surface-settings-input);
+  color: var(--text-primary);
+  font-size: var(--type-13);
+  line-height: var(--leading-body);
+  border-radius: var(--radius-8);
+  min-width: 0;
+}
+.modal-card.settings-modal input:not([type="checkbox"]),
+.modal-card.settings-modal select {
+  height: 40px;
+}
+.modal-card.settings-modal input::placeholder,
+.modal-card.settings-modal textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 1;
+}
+.modal-card.settings-modal select {
+  appearance: none;
+  padding-right: var(--space-35);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    right 18px center,
+    right 13px center;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.modal-card.settings-modal :is(input, select, textarea):hover:not(:disabled) {
+  border-color: var(--border-hover);
+}
+.modal-card.settings-modal :is(input, select, textarea):focus-visible {
+  border-color: var(--border-focus);
+}
+.modal-card.settings-modal :is(input, select, textarea):disabled {
+  cursor: not-allowed;
+  opacity: var(--opacity-disabled);
+}
+.settings-modal :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent-info);
+  outline-offset: 3px;
+}
+.modal-card.settings-modal input.settings-switch {
+  position: relative;
+  appearance: none;
+  display: inline-block;
+  flex: none;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  background: var(--surface-settings-switch);
+  cursor: pointer;
+}
+.modal-card.settings-modal input.settings-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-round);
+  background: var(--surface-settings-switch-thumb);
+  box-shadow: var(--elevation-badge);
+  transition: transform var(--duration-standard) var(--ease-standard);
+}
+.modal-card.settings-modal input.settings-switch:checked {
+  border-color: var(--accent-brand);
+  background: var(--accent-brand);
+}
+.modal-card.settings-modal input.settings-switch:checked::before {
+  transform: translateX(18px);
+}
+.settings-modal .toggle-row {
+  gap: var(--space-24);
+  padding: var(--space-16) var(--space-20);
+  font-size: var(--type-13);
+}
+.settings-modal .toggle-row > span {
+  flex: 1;
+  min-width: 0;
+}
+.settings-modal .toggle-row strong {
+  font-weight: var(--weight-medium);
+}
+.settings-modal .toggle-row small,
+.settings-modal .field-help {
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-fields {
+  display: grid;
+  gap: var(--space-10);
+  padding: var(--space-20);
+  font-size: var(--type-13);
+}
+.settings-fields > label:not(.toggle-row) {
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+}
+.settings-fields > .toggle-row {
+  padding: var(--space-12) 0 0;
+}
+.settings-fields > p {
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-modal .avatar-picker {
+  margin: var(--space-8) 0 0;
+  padding: var(--space-16);
+  border-color: var(--border-divider);
+}
+.settings-avatar-field {
+  padding: 0 var(--space-20) var(--space-20);
+}
+.settings-avatar-field .avatar-picker {
+  margin: 0;
+  padding: var(--space-12);
+  border: 0;
+}
+.settings-avatar-field .avatar-picker-preview {
+  margin-bottom: var(--space-8);
+}
+.settings-row-control input:not([type="checkbox"]) {
+  width: 230px;
+}
+.settings-modal .settings-grid {
+  grid-template-columns: 1fr;
+  gap: 0;
+}
+.settings-modal .settings-grid > label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-24);
+  padding: var(--space-16) var(--space-20);
+  font-size: var(--type-13);
+}
+.settings-modal .settings-grid > label + label {
+  border-top: 1px solid var(--border-divider);
+}
+.settings-modal .settings-grid input,
+.settings-modal .settings-grid select {
+  width: 230px;
+}
+.settings-group-card > section:not(.machine-settings):not(.provider-login) {
+  padding: var(--space-20);
+}
+.settings-modal .soul-editor {
+  margin-top: var(--space-8);
+  width: 100%;
+  min-height: 190px;
+  resize: vertical;
+}
+.settings-modal .machine-settings {
+  padding: var(--space-20);
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: var(--space-16);
+}
+.settings-modal .machine-settings > h3 {
+  display: none;
+}
+.machine-environment-row {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-24);
+}
+.machine-environment-copy {
+  min-width: 0;
+  flex: 1;
+}
+.machine-environment-copy label {
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+.machine-environment-control {
+  width: 230px;
+  max-width: 48%;
+  display: grid;
+  gap: var(--space-8);
+  justify-items: end;
+}
+.settings-modal .machine-idle {
+  gap: var(--space-20);
+  font-size: var(--type-13);
+}
+.settings-modal .machine-settings .toggle-row {
+  padding: var(--space-16) 0;
+  border-top: 1px solid var(--border-divider);
+}
+.settings-modal .machine-actions {
+  display: grid;
+  gap: 0;
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--border-divider);
+}
+.settings-modal .machine-actions .settings-row {
+  padding: var(--space-20) 0;
+}
+.settings-danger-button {
+  background: var(--surface-danger);
+  color: var(--text-danger);
+  border: 1px solid var(--border-notice);
+}
+.settings-danger-button:hover {
+  background: var(--surface-danger-selected);
+}
+.settings-modal .provider-login {
+  margin: 0 var(--space-20) var(--space-20);
+  padding: var(--space-16);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-8);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-modal .provider-login > p {
+  margin-top: 0;
+}
+.settings-modal .provider-login > .text-button {
+  margin-left: var(--space-8);
+  min-height: 36px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-notice);
+  border-radius: var(--radius-8);
+  background: var(--surface-danger);
+  color: var(--text-danger);
+}
+.settings-modal .provider-login > .text-button:hover:not(:disabled) {
+  background: var(--surface-settings-danger-hover);
+}
+.settings-modal .settings-note,
+.settings-inline-note {
+  padding: var(--space-16) var(--space-20);
+  margin-bottom: var(--space-24);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-inline-note p {
+  margin: var(--space-8) 0 0;
+  color: var(--text-secondary);
+}
+.settings-modal kbd {
+  padding: var(--space-6) var(--space-10);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-6);
+  background: var(--surface-settings-input);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--type-12);
+  white-space: nowrap;
+}
+.settings-save-error {
+  margin: var(--space-12) var(--space-28);
+}
+/* MCP keeps its existing connection and policy controls in the dedicated pane. */
+.settings-pane[aria-label="MCP"] > .bot-mcp-settings {
+  font-size: var(--type-13);
+  line-height: var(--leading-body);
+}
+.settings-pane[aria-label="MCP"] > .bot-mcp-settings > h3 {
+  display: none;
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings p {
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.settings-pane[aria-label="MCP"] .mcp-catalog,
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article {
+  margin: var(--space-20) 0;
+  padding: var(--space-20);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+}
+.settings-pane[aria-label="MCP"] .mcp-catalog h3 {
+  margin: 0;
+  font-size: var(--type-14);
+}
+.settings-pane[aria-label="MCP"] .mcp-catalog article {
+  margin-top: var(--space-20);
+  padding-top: var(--space-16);
+  border-top: 1px solid var(--border-divider);
+}
+.settings-pane[aria-label="MCP"] .mcp-catalog h4 {
+  margin: 0;
+  font-size: var(--type-13);
+}
+.settings-pane[aria-label="MCP"] .mcp-catalog a {
+  display: block;
+  margin-bottom: var(--space-12);
+  color: var(--text-link);
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > label {
+  display: grid;
+  gap: var(--space-8);
+  margin: var(--space-16) 0;
+  font-size: var(--type-12);
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings code {
+  overflow-wrap: anywhere;
+}
+/* The MCP tool editor uses the same grouped controls as the global MCP screen. */
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article > fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-12) var(--space-20);
+  margin: var(--space-16) 0;
+  padding: var(--space-16);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-8);
+  min-width: 0;
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article > fieldset > legend {
+  padding: 0 var(--space-6);
+  font: var(--weight-medium) var(--type-12) var(--font-mono);
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article > fieldset > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article > fieldset > label {
+  display: grid;
+  gap: var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.settings-pane[aria-label="MCP"] .bot-mcp-settings > article > .text-button {
+  min-height: 36px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-notice);
+  border-radius: var(--radius-8);
+  background: var(--surface-danger);
+  color: var(--text-danger);
+}
+.settings-modal .routine-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+  padding-block: var(--space-16);
+  border-top: 1px solid var(--border-divider);
+  font-size: var(--type-13);
+}
+.settings-modal .routine-row > span {
+  flex: 1;
+}
+.settings-modal .routine-row small {
+  display: block;
+  margin-top: var(--space-6);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.settings-modal .routine-row .text-button {
+  min-height: 36px;
+  padding: var(--space-8) var(--space-12);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  background: var(--surface-settings-input);
+  font-weight: var(--weight-medium);
+}
+.settings-modal .routine-row .text-button:hover:not(:disabled) {
+  border-color: var(--border-hover);
+  background: var(--surface-settings-hover);
+}
+/* Existing OS permission controls keep their actions and receive scoped styling. */
+.settings-computer-permissions {
+  padding: var(--space-20);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+  font-size: var(--type-13);
+  line-height: var(--leading-body);
+}
+.settings-computer-permissions h2 {
+  margin: var(--space-8) 0;
+  font-size: var(--type-16);
+}
+.settings-computer-permissions p {
+  color: var(--text-secondary);
+  margin: var(--space-8) 0;
+}
+.settings-computer-permissions > div > span {
+  display: none;
+}
+.settings-computer-permissions > div:nth-child(2) {
+  margin-top: var(--space-16);
+}
+.settings-computer-permissions > div:nth-child(2) > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-12) 0;
+  border-top: 1px solid var(--border-divider);
+}
+.settings-computer-permissions button {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  padding: var(--space-8) var(--space-12);
+  background: var(--surface-settings-input);
+  color: var(--text-primary);
+}
+.modal-card.bot-create-modal {
+  width: min(960px, 100%);
+}
+.bot-create-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+.bot-create-steps {
+  display: flex;
+  gap: var(--space-8);
+  padding: var(--space-16) var(--space-28);
+  border-bottom: 1px solid var(--border-divider);
+  background: var(--surface-settings-nav);
+}
+.bot-create-steps button {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-8);
+  padding: var(--space-8);
+  border: 0;
+  border-radius: var(--radius-8);
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  font-size: var(--type-11);
+  line-height: var(--leading-body);
+}
+.bot-create-steps button > span {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-round);
+  font-size: var(--type-11);
+}
+.bot-create-steps button[aria-current="step"] {
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+.bot-create-steps button[aria-current="step"] > span {
+  background: var(--accent-brand);
+  border-color: var(--accent-brand);
+  color: var(--text-on-accent);
+}
+.bot-create-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-28) max(var(--space-28), calc((100% - 620px) / 2));
+}
+.bot-create-fields {
+  display: grid;
+  gap: var(--space-10);
+  font-size: var(--type-13);
+}
+.bot-create-fields > label {
+  margin-top: var(--space-8);
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+}
+.bot-create-fields > p {
+  margin: var(--space-8) 0;
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.bot-create-fields .machine-settings {
+  padding: var(--space-20);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+}
+.bot-create-progress {
+  margin-right: auto;
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.bot-create-identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-20);
+  padding-bottom: var(--space-20);
+}
+.bot-create-identity strong {
+  font-size: var(--type-20);
+  overflow-wrap: anywhere;
+}
+.bot-create-identity p {
+  color: var(--text-secondary);
+  font-size: var(--type-13);
+}
+.bot-create-review dl {
+  margin: 0 0 var(--space-24);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+}
+.bot-create-review dl > div {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: var(--space-20);
+  padding: var(--space-14) var(--space-20);
+  font-size: var(--type-13);
+}
+.bot-create-review dl > div + div {
+  border-top: 1px solid var(--border-divider);
+}
+.bot-create-review dt {
+  color: var(--text-secondary);
+}
+.bot-create-review dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.bot-create-soul-preview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 160px;
+  overflow: auto;
+}
+.modal-card.doctor-modal {
+  width: min(880px, 100%);
+}
+.doctor-modal-content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: var(--space-24) var(--space-28);
+}
+.doctor-modal .modal-intro {
+  padding: 0;
+  margin: 0 0 var(--space-20);
+}
+.doctor-modal .doctor-toolbar {
+  padding: var(--space-20);
+  margin-bottom: var(--space-24);
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  background: var(--surface-settings-card);
+}
+.doctor-summary strong {
+  font-size: var(--type-14);
+  font-weight: var(--weight-medium);
+}
+.doctor-groups {
+  display: grid;
+  gap: var(--space-20);
+}
+.doctor-group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  margin: 0 0 var(--space-10);
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
+}
+.doctor-group .doctor-list {
+  border: 1px solid var(--border-divider);
+  border-radius: var(--radius-12);
+  overflow: hidden;
+  background: var(--surface-settings-card);
+}
+.doctor-group .doctor-check {
+  align-items: flex-start;
+  padding: var(--space-16) var(--space-20);
+  gap: var(--space-12);
+}
+.doctor-group .doctor-check:last-child {
+  border-bottom: 0;
+}
+.doctor-group .doctor-check-content {
+  display: grid;
+  gap: var(--space-6);
+}
+.doctor-check-content > strong {
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+.doctor-group .doctor-check-content > span {
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.doctor-group .doctor-state {
+  padding-top: var(--space-4);
+  text-transform: none;
+}
+.doctor-check .doctor-fix {
+  gap: var(--space-8);
+}
+.doctor-check .doctor-fix-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+}
+.doctor-modal .doctor-privacy {
+  padding: var(--space-20) 0;
+  font-size: var(--type-11);
+  line-height: var(--leading-body);
+}
+.doctor-modal .onboarding-options {
+  padding: 0;
+  background: var(--surface-settings-card);
+  border-color: var(--border-divider);
+}
+@media (max-width: 760px) {
+  .settings-modal {
+    height: calc(100dvh - 40px);
+  }
+  .settings-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+  }
+  .settings-nav {
+    padding-inline: var(--space-8);
+  }
+  .settings-nav button {
+    gap: var(--space-8);
+    padding: var(--space-10);
+  }
+  .settings-pane {
+    padding: var(--space-20);
+  }
+  .settings-row,
+  .machine-environment-row {
+    flex-wrap: wrap;
+    gap: var(--space-12);
+  }
+  .settings-row-control,
+  .machine-environment-control {
+    max-width: 100%;
+  }
+  .bot-create-steps {
+    padding-inline: var(--space-12);
+  }
+}
+@media (max-width: 540px) {
+  .settings-layout {
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-nav {
+    display: flex;
+    overflow-x: auto;
+    padding: var(--space-8);
+    border-right: 0;
+    border-bottom: 1px solid var(--border-divider);
+  }
+  .settings-nav button {
+    width: auto;
+    margin: 0;
+    flex: none;
+  }
+  .settings-nav svg {
+    display: none;
+  }
+  .settings-content {
+    flex: 1;
+  }
+  .settings-modal .settings-grid > label {
+    flex-wrap: wrap;
+  }
+  .bot-create-steps {
+    overflow-x: auto;
+  }
+  .bot-create-steps button {
+    flex: none;
+    width: 112px;
+  }
+  .bot-create-review dl > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-card.settings-modal input.settings-switch::before {
+    transition: none;
+  }
+}
+@media (forced-colors: active) {
+  .modal-card.settings-modal input.settings-switch {
+    appearance: auto;
+  }
+  .modal-card.settings-modal input.settings-switch::before {
+    display: none;
+  }
+  .modal-card.settings-modal select {
+    appearance: auto;
+    background-image: none;
+  }
+}
+/* End r8 settings. */

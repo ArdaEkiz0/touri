@@ -1,0 +1,195 @@
+import type { Bot } from "@touri/contracts"
+import { afterEach, expect, test, vi } from "vitest"
+import type { UiApi } from "../src/api/client"
+import { startInlineFrameSource } from "../src/features/desktop/inlineFrameSource"
+
+const mock = vi.hoisted(() => ({
+  viewers: [] as Array<
+    EventTarget & {
+      viewOnly: boolean
+      resizeSession: boolean
+      focusOnClick: boolean
+      disconnect: ReturnType<typeof vi.fn>
+      sendKey: ReturnType<typeof vi.fn>
+    }
+  >,
+}))
+vi.mock("@novnc/novnc", () => ({
+  default: class extends EventTarget {
+    viewOnly = false
+    resizeSession = true
+    focusOnClick = true
+    disconnect = vi.fn()
+    sendKey = vi.fn()
+    getImageData = () => ({ width: 1, height: 1, data: new Uint8ClampedArray([1, 2, 3, 255]) })
+    constructor() {
+      super()
+      mock.viewers.push(this)
+    }
+  },
+}))
+afterEach(() => {
+  vi.useRealTimers()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  mock.viewers.splice(0)
+})
+
+test("VM pipeline is always view-only, samples at 1 fps and releases its session", async () => {
+  vi.useFakeTimers()
+  vi.stubGlobal(
+    "WebSocket",
+    class {
+      close = vi.fn()
+    },
+  )
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    putImageData: vi.fn(),
+    drawImage: vi.fn(),
+    clearRect: vi.fn(),
+  } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,AAAA")
+  const request = vi.fn(async (route: string) =>
+    route === "POST /bots/:id/desktop"
+      ? { sessionId: "preview", path: "/api/v1/desktop/preview/socket", control: false }
+      : { tabs: [{ title: "Página atual", url: "https://example.org", state: "live", lastUsedAt: 1 }] },
+  )
+  const unsubscribe = vi.fn()
+  const api = {
+    request,
+    subscribe: () => unsubscribe,
+    websocketUrl: (path: string) => `ws://localhost${path}`,
+    isMock: false,
+  } as UiApi
+  const frame = vi.fn()
+  const stop = startInlineFrameSource(api, { id: "bot", machine: "vm" } as Bot, undefined, frame, vi.fn())
+  await vi.waitFor(() => expect(mock.viewers).toHaveLength(1))
+  const viewer = mock.viewers[0]
+  expect(request).toHaveBeenCalledWith("POST /bots/:id/desktop", { control: false, preview: true }, { id: "bot" })
+  expect(viewer?.viewOnly).toBe(true)
+  expect(viewer?.resizeSession).toBe(false)
+  expect(viewer?.focusOnClick).toBe(false)
+  viewer?.dispatchEvent(new Event("connect"))
+  await vi.advanceTimersByTimeAsync(0)
+  expect(frame).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(999)
+  expect(frame).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(frame).toHaveBeenCalledTimes(2)
+  expect(viewer?.sendKey).not.toHaveBeenCalled()
+  stop()
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(frame).toHaveBeenCalledTimes(2)
+  expect(viewer?.disconnect).toHaveBeenCalledOnce()
+  expect(request).toHaveBeenCalledWith("DELETE /desktop/:id", {}, { id: "preview" })
+  expect(unsubscribe).toHaveBeenCalledOnce()
+})
+
+test("a session that resolves after stopping is immediately released", async () => {
+  let resolve: (session: unknown) => void = () => {}
+  const request = vi.fn((route: string) =>
+    route === "POST /bots/:id/desktop"
+      ? new Promise((done) => {
+          resolve = done
+        })
+      : Promise.resolve({ tabs: [] }),
+  )
+  const api = { request, subscribe: () => () => {}, websocketUrl: () => "ws://localhost", isMock: false } as UiApi
+  const frame = vi.fn()
+  const stop = startInlineFrameSource(api, { id: "bot", machine: "vm" } as Bot, undefined, frame, vi.fn())
+  await vi.waitFor(() =>
+    expect(request).toHaveBeenCalledWith("POST /bots/:id/desktop", { control: false, preview: true }, { id: "bot" }),
+  )
+  stop()
+  resolve({ sessionId: "late", path: "/socket", control: false })
+  await vi.waitFor(() => expect(request).toHaveBeenCalledWith("DELETE /desktop/:id", {}, { id: "late" }))
+  expect(mock.viewers).toHaveLength(0)
+  expect(frame).not.toHaveBeenCalled()
+})
+
+test("host browser polling is serial, downsizes frames, closes bitmaps and stops cleanly", async () => {
+  vi.useFakeTimers()
+  const bitmap = { width: 1280, height: 800, close: vi.fn() }
+  vi.stubGlobal(
+    "createImageBitmap",
+    vi.fn(async () => bitmap),
+  )
+  const fetch = vi.fn()
+  vi.stubGlobal("fetch", fetch)
+  const draw = vi.fn()
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: draw,
+    clearRect: vi.fn(),
+  } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,dGh1bWI=")
+  const request = vi.fn(async (route: string) =>
+    route === "GET /browser/tabs"
+      ? { tabs: [] }
+      : { title: "Página", url: "https://example.org", image: "data:image/jpeg;base64,aGVsbG8=" },
+  )
+  const api = { request, subscribe: () => () => {}, isMock: false } as UiApi
+  const frame = vi.fn()
+  const stop = startInlineFrameSource(api, { id: "host", machine: "local" } as Bot, "tab", frame, vi.fn())
+  await vi.advanceTimersByTimeAsync(0)
+  expect(request).toHaveBeenCalledWith("GET /bots/:id/browser-preview", { tabId: "tab" }, { id: "host" })
+  expect(draw).toHaveBeenCalledWith(bitmap, 0, 0, 640, 400)
+  expect(bitmap.close).toHaveBeenCalledOnce()
+  expect(frame).toHaveBeenCalledTimes(1)
+  // connect-src refuses fetch(data:) in the app; frames are decoded and emitted as data: images.
+  expect(fetch).not.toHaveBeenCalled()
+  expect(frame).toHaveBeenCalledWith({
+    src: "data:image/jpeg;base64,dGh1bWI=",
+    title: "Página",
+    url: "https://example.org",
+  })
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(frame).toHaveBeenCalledTimes(2)
+  stop()
+  await vi.advanceTimersByTimeAsync(2_000)
+  expect(frame).toHaveBeenCalledTimes(2)
+  expect(request).not.toHaveBeenCalledWith("POST /bots/:id/desktop", expect.anything(), expect.anything())
+})
+
+test("a VM session request that never answers reports the cause after 20 s", async () => {
+  vi.useFakeTimers()
+  const api = {
+    request: vi.fn((route: string) =>
+      route === "POST /bots/:id/desktop" ? new Promise(() => {}) : Promise.resolve({ tabs: [] }),
+    ),
+    subscribe: () => () => {},
+    websocketUrl: (path: string) => `ws://localhost${path}`,
+    isMock: false,
+  } as unknown as UiApi
+  const unavailable = vi.fn()
+  const stop = startInlineFrameSource(api, { id: "bot", machine: "vm" } as Bot, undefined, vi.fn(), unavailable)
+  await vi.advanceTimersByTimeAsync(20_500)
+  expect(unavailable).toHaveBeenCalledWith(expect.stringContaining("A VM não respondeu ao pedido da prévia em 20 s"))
+  stop()
+})
+
+test("a local preview that keeps failing exposes the real reason while it keeps polling", async () => {
+  vi.useFakeTimers()
+  const api = {
+    request: vi.fn((route: string) =>
+      route === "GET /bots/:id/browser-preview"
+        ? Promise.reject(new Error("Nenhuma página disponível para prévia"))
+        : Promise.resolve({ tabs: [] }),
+    ),
+    subscribe: () => () => {},
+    isMock: false,
+  } as unknown as UiApi
+  const status = vi.fn()
+  const stop = startInlineFrameSource(api, { id: "bot", machine: "local" } as Bot, undefined, vi.fn(), vi.fn(), status)
+  await vi.advanceTimersByTimeAsync(2_500)
+  expect(status).toHaveBeenCalledWith("Nenhuma página disponível para prévia")
+  expect(api.request).toHaveBeenCalledWith("GET /bots/:id/browser-preview", {}, { id: "bot" })
+  stop()
+})
+
+test("data: frames are decoded locally instead of through fetch, which the desktop CSP refuses", async () => {
+  const { dataUrlBlob } = await import("../src/features/desktop/inlineFrameSource")
+  const blob = dataUrlBlob("data:image/png;base64,aGVsbG8=")
+  expect(blob.type).toBe("image/png")
+  expect(blob.size).toBe(5)
+  expect(() => dataUrlBlob("blob:https://tauri.localhost/1")).toThrow()
+})

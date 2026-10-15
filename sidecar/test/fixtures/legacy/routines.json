@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "routines": [
+    {
+      "id": "routine-mark-0000000000000000000001",
+      "name": "Daily campaign check",
+      "prompt": "Review the campaign queue.",
+      "botId": "bot-mark-000000000000000000000001",
+      "enabled": true,
+      "schedule": { "type": "cron", "expression": "0 9 * * 1-5", "timeZone": "America/Sao_Paulo" },
+      "timeoutMinutes": 30,
+      "continuity": "results-thread"
+    },
+    {
+      "id": "routine-onb-0000000000000000000002",
+      "name": "KYB queue",
+      "prompt": "Check the KYB queue.",
+      "botId": "bot-onb-000000000000000000000002",
+      "enabled": false,
+      "schedule": { "type": "cron", "expression": "10 14 * * 1-5", "timeZone": "America/Sao_Paulo" },
+      "timeoutMinutes": 30,
+      "continuity": "new-thread"
+    }
+  ],
+  "runs": [
+    {
+      "id": "routine-run-mark-000000000000000000001",
+      "routineId": "routine-mark-0000000000000000000001",
+      "status": "succeeded",
+      "threadId": "thread-mark-chat-0000000000000000000002",
+      "scheduledFor": 1760000000000,
+      "startedAt": 1760000000100,
+      "finishedAt": 1760000000200,
+      "output": "Done",
+      "manual": false,
+      "triggerSource": "cron"
+    }
+  ]
+}

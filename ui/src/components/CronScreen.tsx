@@ -1,0 +1,580 @@
+import type { Bot, Id, Message, Routine, RoutineRun } from "@touri/contracts"
+import { AVATAR_COLOR_CHOICES, avatarColorFor } from "@touri/contracts/avatar"
+import { useMemo, useRef, useState } from "react"
+import { type ApprovalTarget, pendingApprovalTargets } from "../approvalNavigation"
+import { userFacingError } from "../errors"
+import { t } from "../i18n"
+import type { WorkspaceActions } from "../useWorkspace"
+import { BotAvatar } from "./BotAvatar"
+import { ScreenHeader, ScreenState } from "./ScreenPrimitives"
+import "./screens.css"
+
+type CronScreenProps = {
+  loading?: boolean
+  loadError?: string | null
+  selectedBotId: Id | null
+  bots: Array<Bot>
+  routines: Array<Routine>
+  routineRuns: Array<RoutineRun>
+  messages: Array<Message>
+  actions: WorkspaceActions
+  onReviewApprovals: (target: ApprovalTarget) => void
+  onNotice: (message: string) => void
+}
+
+type RoutineEditorState = { routine: Routine | null; botId: Id; isNew: boolean } | null
+
+export const calendarBotColors = (bots: Array<Bot>): Map<Id, string> => {
+  const used = new Set<string>()
+  const colors = new Map<Id, string>()
+  for (const bot of [...bots].sort((a, b) => a.id.localeCompare(b.id))) {
+    const own = avatarColorFor(bot)
+    const color = !used.has(own)
+      ? own
+      : (AVATAR_COLOR_CHOICES.find((candidate) => !used.has(candidate.hex))?.hex ?? own)
+    colors.set(bot.id, color)
+    used.add(color)
+  }
+  return colors
+}
+
+const CronScreen = ({
+  bots,
+  loading = false,
+  loadError = null,
+  selectedBotId,
+  routines,
+  routineRuns,
+  messages,
+  actions,
+  onReviewApprovals,
+  onNotice,
+}: CronScreenProps) => {
+  const startingRef = useRef(new Set<Id>())
+  const [starting, setStarting] = useState<Set<Id>>(new Set())
+  const runNow = async (routineId: Id): Promise<void> => {
+    if (startingRef.current.has(routineId)) return
+    startingRef.current.add(routineId)
+    setStarting(new Set(startingRef.current))
+    try {
+      await actions.runRoutine(routineId)
+    } catch (error) {
+      onNotice(userFacingError(error))
+    } finally {
+      startingRef.current.delete(routineId)
+      setStarting(new Set(startingRef.current))
+    }
+  }
+  const [botFilter, setBotFilter] = useState<Id | "all">("all")
+  const [stateFilter, setStateFilter] = useState<"all" | "active" | "paused">("all")
+  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+  const [editor, setEditor] = useState<RoutineEditorState>(null)
+  const pendingApprovals = useMemo(() => pendingApprovalTargets(messages), [messages])
+  const visibleRoutines = routines.filter(
+    (routine) =>
+      (botFilter === "all" || routine.botId === botFilter) &&
+      (stateFilter === "all" || (stateFilter === "active" ? routine.enabled : !routine.enabled)),
+  )
+  const calendar = useMemo(() => buildCalendar(month), [month])
+  const calendarRuns = routineRuns.filter((routineRun) => {
+    if (!visibleRoutines.some((routine) => routine.id === routineRun.routineId)) return false
+    const date = new Date(routineRun.scheduledFor)
+    return date.getFullYear() === month.getFullYear() && date.getMonth() === month.getMonth()
+  })
+  const colors = calendarBotColors(bots)
+  const botById = new Map(bots.map((bot) => [bot.id, bot]))
+  const runsByDate = new Map<number, Array<{ color: string; failed: boolean; key: string }>>()
+  for (const routineRun of calendarRuns) {
+    const routine = routines.find((candidate) => candidate.id === routineRun.routineId)
+    if (!routine) continue
+    const day = new Date(routineRun.scheduledFor).getDate()
+    const existing = runsByDate.get(day) ?? []
+    existing.push({
+      color: colors.get(routine.botId) ?? "var(--text-tertiary)",
+      failed: routineRun.status === "failed",
+      key: routineRun.id,
+    })
+    runsByDate.set(day, existing)
+  }
+
+  const saveRoutine = async (input: RoutineEditorState): Promise<void> => {
+    if (!input) return
+    try {
+      if (input.routine && !input.isNew) {
+        await actions.updateRoutine(input.routine.id, {
+          name: input.routine.name,
+          prompt: input.routine.prompt,
+          cron: input.routine.cron,
+          timezone: input.routine.timezone,
+          continuity: input.routine.continuity,
+          timeoutMinutes: input.routine.timeoutMinutes,
+          catchUpMinutes: input.routine.catchUpMinutes,
+        })
+        onNotice(t("Cron atualizado"))
+      } else {
+        const draft = input.routine ?? {
+          name: t("Nova rotina"),
+          prompt: "",
+          cron: "0 9 * * 1-5",
+          timezone: "America/Sao_Paulo",
+          continuity: "main-thread" as const,
+          timeoutMinutes: 30,
+          catchUpMinutes: 30,
+        }
+        await actions.createRoutine({
+          botId: input.botId,
+          name: draft.name,
+          prompt: draft.prompt,
+          cron: draft.cron,
+          timezone: draft.timezone,
+          enabled: false,
+          continuity: draft.continuity,
+          resultsThreadId: null,
+          timeoutMinutes: draft.timeoutMinutes,
+          overlap: "skip",
+          catchUpMinutes: draft.catchUpMinutes,
+        })
+        onNotice(t("Cron criado e pausado para revisão"))
+      }
+    } catch (error) {
+      onNotice(error instanceof Error ? error.message : t("Não foi possível salvar a rotina"))
+    } finally {
+      setEditor(null)
+    }
+  }
+
+  return (
+    <section className="workspace-screen r8-screen cron-screen" aria-labelledby="cron-title">
+      <ScreenHeader
+        id="cron-title"
+        title="Cron"
+        description={`${routines.length} ${routines.length === 1 ? "rotina" : "rotinas"} · executadas enquanto o touri está aberto`}
+        actions={
+          <>
+            <button type="button" className="outline-button" onClick={() => void actions.refresh()}>
+              Atualizar
+            </button>
+            <button
+              type="button"
+              className="brand-button"
+              disabled={bots.length === 0}
+              onClick={() =>
+                setEditor({
+                  routine: null,
+                  botId: botFilter !== "all" ? botFilter : (selectedBotId ?? bots[0]?.id ?? ""),
+                  isNew: true,
+                })
+              }
+            >
+              <span aria-hidden="true">＋</span>Criar cron
+            </button>
+          </>
+        }
+      />
+      <fieldset className="cron-filters">
+        <legend className="visually-hidden">{t("Filtros de cron")}</legend>
+        <span className="filter-label">Bot</span>
+        <FilterButton active={botFilter === "all"} onClick={() => setBotFilter("all")}>
+          {t("Todos os bots")}
+        </FilterButton>
+        {bots.map((bot) => (
+          <FilterButton key={bot.id} active={botFilter === bot.id} onClick={() => setBotFilter(bot.id)}>
+            {bot.name}
+          </FilterButton>
+        ))}
+        <span className="filter-divider" />
+        <span className="filter-label">{t("estado")}</span>
+        {(["all", "active", "paused"] as const).map((state) => (
+          <FilterButton key={state} active={stateFilter === state} onClick={() => setStateFilter(state)}>
+            {state === "all" ? t("Todos") : state === "active" ? "Ativas" : "Pausadas"}
+          </FilterButton>
+        ))}
+      </fieldset>
+      <div className="cron-content">
+        <div className="cron-primary">
+          {pendingApprovals.length > 0 && (
+            <button
+              type="button"
+              className="approval-banner"
+              onClick={() => {
+                const target = pendingApprovals[0]
+                if (target) onReviewApprovals(target)
+              }}
+            >
+              <span className="approval-icon" aria-hidden="true">
+                !
+              </span>
+              <span>
+                <strong>{t("Pending approval count", { count: pendingApprovals.length })}</strong>
+                <small>{t("Revise antes de continuar as rotinas")}</small>
+              </span>
+              <span className="approval-link">{t("Revisar →")}</span>
+            </button>
+          )}
+          <section className="cron-card routine-queue">
+            <div className="cron-card-heading">
+              <strong>Rotinas</strong>
+              <span>{t("Visible count", { count: visibleRoutines.length })}</span>
+            </div>
+            <div className="routine-list">
+              {loading ? (
+                <ScreenState kind="loading" />
+              ) : loadError ? (
+                <ScreenState
+                  kind="error"
+                  description="As rotinas estão indisponíveis."
+                  onRetry={() => void actions.refresh()}
+                />
+              ) : (
+                visibleRoutines.map((routine) => {
+                  const bot = botById.get(routine.botId)
+                  const busy =
+                    starting.has(routine.id) ||
+                    routineRuns.some((run) => run.routineId === routine.id && run.status === "running")
+                  const latestRun = [...routineRuns]
+                    .filter((run) => run.routineId === routine.id)
+                    .sort((a, b) => b.scheduledFor - a.scheduledFor)[0]
+                  const awaiting =
+                    latestRun?.status === "running" &&
+                    pendingApprovals.some((target) => target.threadId === latestRun.threadId)
+                  const result = awaiting
+                    ? "Aguardando aprovação"
+                    : busy
+                      ? "Em execução"
+                      : latestRun?.status === "succeeded"
+                        ? "Concluída"
+                        : latestRun?.status === "failed"
+                          ? "Falhou"
+                          : null
+                  return (
+                    <article className={`routine-item ${routine.enabled ? "" : "is-paused"}`} key={routine.id}>
+                      <BotAvatar bot={bot ?? { id: routine.botId, color: null }} size={32} />
+                      <span className="routine-copy">
+                        <strong>{routine.name}</strong>
+                        <small>
+                          {routine.cron} · {bot?.name ?? "bot"}
+                        </small>
+                      </span>
+                      <span className="routine-status">
+                        <span className={`screen-status ${routine.enabled ? "is-success" : ""}`}>
+                          {routine.enabled ? "Ativa" : "Pausada"}
+                        </span>
+                        {result && (
+                          <span
+                            className={`screen-status ${awaiting ? "is-warning" : busy ? "is-info" : result === "Falhou" ? "is-error" : "is-success"}`}
+                          >
+                            {result}
+                          </span>
+                        )}
+                        <small>
+                          {routine.enabled && routine.nextRunAt
+                            ? `Próxima: ${formatNextRun(routine.nextRunAt)}`
+                            : "Sem próxima execução"}
+                        </small>
+                      </span>
+                      <span className="routine-actions">
+                        <button
+                          type="button"
+                          aria-label={`Rodar agora ${routine.name}`}
+                          disabled={busy}
+                          aria-busy={busy}
+                          onClick={() => void runNow(routine.id)}
+                        >
+                          {starting.has(routine.id) && (
+                            <span className="run-spinner" role="status" aria-label="Iniciando…">
+                              ◌
+                            </span>
+                          )}
+                          Rodar agora
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={routine.enabled ? `Pausar ${routine.name}` : `Retomar ${routine.name}`}
+                          onClick={() =>
+                            void actions
+                              .toggleRoutine(routine)
+                              .catch((error: unknown) => onNotice(userFacingError(error)))
+                          }
+                        >
+                          {routine.enabled ? "Pausar" : "Retomar"}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Editar ${routine.name}`}
+                          onClick={() => setEditor({ routine: { ...routine }, botId: routine.botId, isNew: false })}
+                        >
+                          Editar
+                        </button>
+                      </span>
+                    </article>
+                  )
+                })
+              )}
+              {!loading && !loadError && visibleRoutines.length === 0 && (
+                <ScreenState
+                  kind="empty"
+                  title={
+                    routines.length === 0
+                      ? "Sua primeira rotina começa aqui"
+                      : "Nenhuma rotina corresponde a estes filtros"
+                  }
+                  description={
+                    routines.length === 0
+                      ? "Agende uma tarefa para um bot. Novas rotinas começam pausadas."
+                      : "Escolha outro bot ou estado para ver mais rotinas."
+                  }
+                />
+              )}
+            </div>
+          </section>
+        </div>
+        <section className="cron-card calendar-card" aria-label={t("Calendário mensal")}>
+          <div className="calendar-heading">
+            <strong>{t("Calendário mensal")}</strong>
+            <span>
+              <button
+                type="button"
+                aria-label={t("Mês anterior")}
+                onClick={() => setMonth((value) => shiftMonth(value, -1))}
+              >
+                ‹
+              </button>
+              <span>{month.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}</span>
+              <button
+                type="button"
+                aria-label={t("Próximo mês")}
+                onClick={() => setMonth((value) => shiftMonth(value, 1))}
+              >
+                ›
+              </button>
+            </span>
+          </div>
+          <div className="calendar-weekdays">
+            {["dom", "seg", "ter", "qua", "qui", "sex", "sáb"].map((day) => (
+              <span key={day}>{day}</span>
+            ))}
+          </div>
+          <div className="calendar-grid">
+            {calendar.map((day) => {
+              const dots = day.number ? (runsByDate.get(day.number) ?? []) : []
+              return (
+                <div
+                  className={`calendar-day ${day.inMonth ? "" : "outside"} ${day.today ? "today" : ""}`}
+                  key={day.key}
+                >
+                  <span>{day.number || ""}</span>
+                  <span className="calendar-dots">
+                    {dots.slice(0, 4).map((dot) => (
+                      <i
+                        data-run-id={dot.key}
+                        className={dot.failed ? "failed" : ""}
+                        style={{ background: dot.failed ? "var(--text-danger)" : dot.color }}
+                        key={dot.key}
+                      />
+                    ))}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="calendar-legend">
+            {bots
+              .filter((bot) => visibleRoutines.some((routine) => routine.botId === bot.id))
+              .map((bot) => (
+                <span key={bot.id}>
+                  <i style={{ background: colors.get(bot.id) }} />
+                  {bot.name}
+                </span>
+              ))}
+            <span>
+              <i className="failed" />
+              {t("falhou")}
+            </span>
+          </div>
+        </section>
+      </div>
+      {editor && (
+        <RoutineEditor
+          editor={editor}
+          bots={bots}
+          onChange={setEditor}
+          onClose={() => setEditor(null)}
+          onSave={() => void saveRoutine(editor)}
+        />
+      )}
+    </section>
+  )
+}
+
+const FilterButton = ({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) => (
+  <button type="button" aria-pressed={active} className={`filter-button ${active ? "active" : ""}`} onClick={onClick}>
+    {children}
+  </button>
+)
+
+const formatNextRun = (timestamp: number): string =>
+  new Date(timestamp).toLocaleString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+
+const shiftMonth = (date: Date, amount: number): Date => new Date(date.getFullYear(), date.getMonth() + amount, 1)
+
+const buildCalendar = (month: Date): Array<{ key: string; number: number; inMonth: boolean; today: boolean }> => {
+  const firstWeekday = new Date(month.getFullYear(), month.getMonth(), 1).getDay()
+  const daysInMonth = new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate()
+  const today = new Date()
+  return Array.from({ length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 }, (_, index) => {
+    const number = index - firstWeekday + 1
+    return {
+      key:
+        number <= 0 ? `leading-${number}` : number > daysInMonth ? `trailing-${number - daysInMonth}` : `day-${number}`,
+      number: number > 0 && number <= daysInMonth ? number : 0,
+      inMonth: number > 0 && number <= daysInMonth,
+      today:
+        number === today.getDate() &&
+        month.getMonth() === today.getMonth() &&
+        month.getFullYear() === today.getFullYear(),
+    }
+  })
+}
+
+const RoutineEditor = ({
+  editor,
+  bots,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  editor: NonNullable<RoutineEditorState>
+  bots: Array<Bot>
+  onChange: (value: NonNullable<RoutineEditorState>) => void
+  onClose: () => void
+  onSave: () => void
+}) => {
+  const routine = editor.routine ?? {
+    id: "new",
+    botId: editor.botId,
+    name: t("Nova rotina"),
+    prompt: "",
+    cron: "0 9 * * 1-5",
+    timezone: "America/Sao_Paulo",
+    enabled: false,
+    continuity: "main-thread" as const,
+    resultsThreadId: null,
+    timeoutMinutes: 30,
+    overlap: "skip" as const,
+    catchUpMinutes: 30,
+    nextRunAt: null,
+    source: "local" as const,
+    createdAt: 0,
+    updatedAt: 0,
+  }
+  const update = (patch: Partial<Routine>): void => onChange({ ...editor, routine: { ...routine, ...patch } })
+  return (
+    <div className="routine-modal-backdrop" role="presentation">
+      <form
+        className="routine-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={editor.isNew ? "Criar cron" : "Editar cron"}
+        onSubmit={(event) => {
+          event.preventDefault()
+          onSave()
+        }}
+      >
+        <div className="routine-modal-header">
+          <div>
+            <span className="screen-crumb">touri / Cron</span>
+            <h2>{editor.isNew ? t("Criar cron") : t("Editar cron")}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label={t("Fechar")}>
+            ×
+          </button>
+        </div>
+        <label>
+          Bot
+          <select
+            value={routine.botId}
+            onChange={(event) => {
+              onChange({ ...editor, botId: event.target.value, routine: { ...routine, botId: event.target.value } })
+            }}
+          >
+            {bots.map((bot) => (
+              <option key={bot.id} value={bot.id}>
+                {bot.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          {t("Nome")}
+          <input value={routine.name} onChange={(event) => update({ name: event.target.value })} />
+        </label>
+        <label>
+          Prompt
+          <textarea value={routine.prompt} onChange={(event) => update({ prompt: event.target.value })} rows={4} />
+        </label>
+        <div className="routine-form-grid">
+          <label>
+            Cron
+            <input value={routine.cron} onChange={(event) => update({ cron: event.target.value })} />
+          </label>
+          <label>
+            {t("Timezone")}
+            <input value={routine.timezone} onChange={(event) => update({ timezone: event.target.value })} />
+          </label>
+        </div>
+        <div className="routine-form-grid">
+          <label>
+            Continuidade
+            <select
+              value={routine.continuity}
+              onChange={(event) => update({ continuity: event.target.value as Routine["continuity"] })}
+            >
+              <option value="main-thread">Conversa principal</option>
+              <option value="new-thread">Nova conversa por execução</option>
+              <option value="results-thread">Conversa de resultados</option>
+            </select>
+          </label>
+          <label>
+            Limite de execução (minutos)
+            <input
+              type="number"
+              min={1}
+              max={240}
+              value={routine.timeoutMinutes}
+              onChange={(event) => update({ timeoutMinutes: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Recuperar disparos atrasados por (minutos)
+            <input
+              type="number"
+              min={0}
+              max={1440}
+              value={routine.catchUpMinutes}
+              onChange={(event) => update({ catchUpMinutes: Number(event.target.value) })}
+            />
+          </label>
+        </div>
+        <p className="routine-form-note">{t("Novas rotinas começam pausadas para você revisar o primeiro disparo.")}</p>
+        <div className="routine-modal-actions">
+          <button type="button" className="outline-button" onClick={onClose}>
+            {t("Cancelar")}
+          </button>
+          <button type="submit" className="brand-button">
+            {t("Salvar cron")}
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
+
+export default CronScreen

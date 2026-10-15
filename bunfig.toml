@@ -1,0 +1,6 @@
+logLevel = "warn"
+smol = true
+
+[test]
+coverage = false
+timeout = 10000

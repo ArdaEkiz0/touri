@@ -1,0 +1,54 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "semicolons": "asNeeded"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "complexity": {
+        "noForEach": "off",
+        "noImportantStyles": "off"
+      },
+      "style": {
+        "useConst": "error",
+        "noNonNullAssertion": "error",
+        "noParameterAssign": "error",
+        "noDescendingSpecificity": "off"
+      }
+    }
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/target",
+      "!**/dist",
+      "!dist",
+      "!node_modules",
+      "!**/.bun-cache",
+      "!src-tauri/binaries",
+      "!src-tauri/gen",
+      "!src-tauri/icons/icon.iconset",
+      "!**/test-results",
+      "!docs/contracts",
+      "!packages/contracts/src/types.ts",
+      "!packages/contracts/schema.sql",
+      "!packages/contracts/mcp-tools.json",
+      "!docs/design"
+    ]
+  }
+}

@@ -1,0 +1,208 @@
+import type { Bot, Message, Run } from "@touri/contracts"
+import type { AvatarIdentity, AvatarMood } from "@touri/contracts/avatar"
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react"
+import type { WorkspaceData } from "../useWorkspace"
+import { MascotMachine, type MascotSnapshot, type MascotState, mascotMoodFor, mascotSignalFor } from "./mascotState"
+
+export type AvatarRuntime = Pick<
+  WorkspaceData,
+  "bots" | "runs" | "messages" | "threads" | "notifications" | "loading"
+> &
+  Partial<Pick<WorkspaceData, "computerGrantRequest" | "machines">>
+type ComposerEvent = { botId: string; threadId: string; focused: boolean; typing: boolean }
+type RuntimeValue = AvatarRuntime & {
+  snapshots: ReadonlyMap<string, MascotSnapshot>
+  composer: (event: ComposerEvent) => void
+}
+type MachineView = { snapshots: ReadonlyMap<string, MascotSnapshot>; deadline: number | null }
+const RuntimeContext = createContext<RuntimeValue | null>(null)
+const scopeKey = (botId: string, threadId?: string): string => JSON.stringify([botId, threadId ?? null])
+const machineView = (machines: ReadonlyMap<string, MascotMachine>): MachineView => {
+  const deadlines = [...machines.values()].flatMap((machine) => (machine.deadline === null ? [] : [machine.deadline]))
+  return {
+    snapshots: new Map([...machines].map(([key, machine]) => [key, machine.snapshot])),
+    deadline: deadlines.length ? Math.min(...deadlines) : null,
+  }
+}
+
+const completionStamps = (runtime: AvatarRuntime): Map<string, number> => {
+  const stamps = new Map<string, number>()
+  const note = (botId: string | null, at: number): void => {
+    if (botId) stamps.set(botId, Math.max(stamps.get(botId) ?? 0, at))
+  }
+  const threadBots = new Map(runtime.threads.map((thread) => [thread.id, thread.botId]))
+  for (const message of runtime.messages) {
+    if (message.role === "assistant" && message.status === "complete")
+      note(threadBots.get(message.threadId) ?? null, message.updatedAt)
+  }
+  for (const run of runtime.runs)
+    if (run.status === "succeeded" && run.replyMessageId) note(run.botId, run.finishedAt ?? 0)
+  for (const item of runtime.notifications) if (item.kind === "done") note(item.botId, item.createdAt)
+  return stamps
+}
+
+const runtimeSignals = (runtime: AvatarRuntime, recentReplies: ReadonlySet<string>) => {
+  const botIds = new Set([...runtime.bots.map((bot) => bot.id), ...runtime.runs.map((run) => run.botId)])
+  const signals = new Map<string, ReturnType<typeof mascotSignalFor>>()
+  for (const botId of botIds) {
+    const threads = runtime.threads.filter((thread) => thread.botId === botId)
+    const threadIds = new Set(threads.map((thread) => thread.id))
+    const messages = runtime.messages.filter((message) => threadIds.has(message.threadId))
+    const shared = {
+      botId,
+      paused: runtime.bots.find((bot) => bot.id === botId)?.paused ?? false,
+      runs: runtime.runs,
+      messages,
+      notifications: runtime.notifications,
+      recentReply: recentReplies.has(botId),
+      waiting: threadIds.has(runtime.computerGrantRequest?.threadId ?? ""),
+      machine: runtime.machines?.find((machine) => machine.botId === botId),
+    }
+    signals.set(scopeKey(botId), mascotSignalFor(shared))
+    for (const thread of threads)
+      signals.set(
+        scopeKey(botId, thread.id),
+        mascotSignalFor({
+          ...shared,
+          runs: runtime.runs.filter((run) => run.threadId === thread.id),
+          messages: messages.filter((message) => message.threadId === thread.id),
+          notifications: runtime.notifications.filter((item) => item.threadId === thread.id),
+          recentReply: false,
+          waiting: runtime.computerGrantRequest?.threadId === thread.id,
+        }),
+      )
+  }
+  return signals
+}
+
+/** One machine per bot and conversation; every avatar on a surface observes the same snapshot. */
+export const AvatarRuntimeProvider = ({ value, children }: { value: AvatarRuntime; children: ReactNode }) => {
+  const [recentReplies, setRecentReplies] = useState<ReadonlySet<string>>(new Set())
+  const previous = useRef(completionStamps(value))
+  const previousLoading = useRef(value.loading)
+  const [machines] = useState(() => {
+    const now = performance.now()
+    return new Map([...runtimeSignals(value, new Set())].map(([key, signal]) => [key, new MascotMachine(signal, now)]))
+  })
+  const [{ snapshots, deadline }, setView] = useState(() => machineView(machines))
+  const publish = useCallback(() => {
+    setView((current) => {
+      const next = machineView(machines)
+      return current.deadline === next.deadline &&
+        current.snapshots.size === next.snapshots.size &&
+        [...next.snapshots].every(([key, snapshot]) => current.snapshots.get(key) === snapshot)
+        ? current
+        : next
+    })
+  }, [machines])
+
+  useEffect(() => {
+    const current = completionStamps(value)
+    const completed = [...current].filter(([id, at]) => at > (previous.current.get(id) ?? 0)).map(([id]) => id)
+    previous.current = current
+    const hydrated = !value.loading && !previousLoading.current
+    previousLoading.current = value.loading
+    if (!hydrated || completed.length === 0 || (document.hasFocus() && !document.hidden)) return
+    setRecentReplies((existing) => new Set([...existing, ...completed]))
+  }, [value])
+  // Register runtime scopes before composer effects can address a newly selected conversation.
+  useLayoutEffect(() => {
+    const now = performance.now()
+    const signals = runtimeSignals(value, recentReplies)
+    for (const key of machines.keys()) if (!signals.has(key)) machines.delete(key)
+    for (const [key, signal] of signals) {
+      const machine = machines.get(key) ?? new MascotMachine(signal, now)
+      machines.set(key, machine)
+      machine.send({ type: "runtime", signal }, now)
+    }
+    publish()
+  }, [value, recentReplies, machines, publish])
+
+  useEffect(() => {
+    if (deadline === null) return
+    const timer = window.setTimeout(
+      () => {
+        // Browsers round timer delays; the scheduled deadline is the earliest valid tick.
+        const now = Math.max(deadline, performance.now())
+        for (const machine of machines.values()) machine.send({ type: "tick" }, now)
+        publish()
+      },
+      Math.max(0, deadline - performance.now()),
+    )
+    return () => window.clearTimeout(timer)
+  }, [deadline, machines, publish])
+
+  useEffect(() => {
+    const clear = (): void => setRecentReplies(new Set())
+    const visibility = (): void => {
+      if (!document.hidden && document.hasFocus()) clear()
+    }
+    window.addEventListener("focus", clear)
+    document.addEventListener("visibilitychange", visibility)
+    return () => {
+      window.removeEventListener("focus", clear)
+      document.removeEventListener("visibilitychange", visibility)
+    }
+  }, [])
+  const composer = useCallback(
+    (event: ComposerEvent): void => {
+      const now = performance.now()
+      for (const key of [scopeKey(event.botId), scopeKey(event.botId, event.threadId)])
+        machines.get(key)?.send({ type: "composer", focused: event.focused, typing: event.typing }, now)
+      publish()
+    },
+    [machines, publish],
+  )
+  return <RuntimeContext.Provider value={{ ...value, snapshots, composer }}>{children}</RuntimeContext.Provider>
+}
+
+export const useAvatarBot = (id: string | null): Bot | undefined =>
+  useContext(RuntimeContext)?.bots.find((bot) => bot.id === id)
+
+export const useThreadBot = (threadId: string): Bot | undefined => {
+  const runtime = useContext(RuntimeContext)
+  const botId = runtime?.threads.find((thread) => thread.id === threadId)?.botId
+  return runtime?.bots.find((bot) => bot.id === botId)
+}
+
+export const useMascotComposer = (): RuntimeValue["composer"] | undefined => useContext(RuntimeContext)?.composer
+
+export const useMascotSnapshot = (
+  identity: AvatarIdentity & { paused?: boolean },
+  threadId?: string,
+): MascotSnapshot => {
+  const runtime = useContext(RuntimeContext)
+  const snapshot = runtime?.snapshots.get(scopeKey(identity.id, threadId))
+  return identity.paused
+    ? { state: "sleeping", since: 0, revision: 0 }
+    : (snapshot ?? { state: "idle", since: 0, revision: 0 })
+}
+
+export const useAvatarMood = (identity: AvatarIdentity & { paused?: boolean }, override?: AvatarMood): AvatarMood => {
+  const runtime = useContext(RuntimeContext)
+  const snapshot = useMascotSnapshot(identity)
+  return override ?? (runtime?.loading && snapshot.state === "idle" ? "connecting" : mascotMoodFor(snapshot.state))
+}
+
+export const useMessageMascotState = (message: Message, run?: Run): MascotState => {
+  const runtime = useContext(RuntimeContext)
+  const botId = run?.botId ?? runtime?.threads.find((thread) => thread.id === message.threadId)?.botId ?? ""
+  const snapshot = runtime?.snapshots.get(scopeKey(botId, message.threadId))
+  if (snapshot) return snapshot.state
+  return mascotSignalFor({
+    botId,
+    runs: run ? [run] : [],
+    messages: [message],
+    notifications: runtime?.notifications.filter((item) => item.threadId === message.threadId) ?? [],
+    waiting: runtime?.computerGrantRequest?.threadId === message.threadId,
+  }).state
+}

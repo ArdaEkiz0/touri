@@ -1,0 +1,143 @@
+/* Command palette: Mono identity, neutral selection, no accent fill. */
+.command-palette-backdrop {
+  position: fixed;
+  z-index: 45;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: var(--space-100) var(--space-20) var(--space-20);
+  background: var(--surface-backdrop);
+  backdrop-filter: blur(8px);
+}
+.command-palette {
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(560px, calc(100vh - 140px));
+  overflow: hidden;
+  border: 1px solid var(--border-dialog);
+  border-radius: var(--radius-14);
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  box-shadow: var(--elevation-modal);
+}
+.command-palette-input {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-14) var(--space-16);
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-tertiary);
+}
+.command-palette-input:focus-within {
+  box-shadow: inset 0 -1px var(--text-primary);
+}
+.command-palette-input input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--type-14);
+}
+.command-palette-input input:focus-visible {
+  outline: none;
+}
+.command-palette kbd {
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-4);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono-brand);
+  font-size: var(--type-11);
+}
+.command-palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8) var(--space-8);
+  overscroll-behavior: contain;
+}
+.command-palette-group {
+  padding: var(--space-10) var(--space-10) var(--space-4);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono-brand);
+  font-size: var(--type-11);
+  letter-spacing: 0.02em;
+}
+.command-palette-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: 40px;
+  padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-8);
+  cursor: pointer;
+}
+.command-palette-option[data-active] {
+  background: var(--surface-selected);
+  box-shadow: inset 2px 0 var(--text-primary);
+}
+.command-palette-option-copy {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  gap: var(--space-2);
+}
+.command-palette-option-copy strong,
+.command-palette-option-copy small {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.command-palette-option-copy strong {
+  font-size: var(--type-13);
+  font-weight: var(--weight-semibold);
+}
+.command-palette-option-copy small {
+  color: var(--text-secondary);
+  font-size: var(--type-12);
+}
+.command-palette-option-hint {
+  color: var(--text-tertiary);
+  font-size: var(--type-12);
+  opacity: 0;
+}
+.command-palette-option[data-active] .command-palette-option-hint {
+  opacity: 1;
+}
+.command-palette-empty {
+  margin: 0;
+  padding: var(--space-20) var(--space-10);
+  color: var(--text-secondary);
+  font-size: var(--type-13);
+}
+.command-palette-footer {
+  display: flex;
+  gap: var(--space-16);
+  padding: var(--space-8) var(--space-16);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-tertiary);
+  font-size: var(--type-11);
+}
+.command-palette-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+/* Palette destinations: the focused setting row is outlined briefly, then settles. */
+[data-setting-highlight="true"] {
+  border-radius: var(--radius-8);
+  box-shadow:
+    0 0 0 2px var(--focus-ring),
+    inset 0 0 0 1px var(--text-primary);
+  transition: box-shadow var(--duration-surface) var(--ease-surface);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-setting-highlight="true"] {
+    transition: none;
+  }
+}
+:root[data-motion="reduce"] [data-setting-highlight="true"] {
+  transition: none;
+}
