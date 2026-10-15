@@ -477,7 +477,13 @@ const MessageBubble = ({
     message.role === "assistant" &&
     message.status !== "streaming" &&
     (text.length > 4000 || text.split("\n").length > 40)
-  const runError = runErrorFor(message, run, machine?.status === "running")
+  const failure = runErrorFor(message, run, machine?.status === "running")
+  const runError =
+    vmBotId &&
+    (machine?.status === "running" || machine?.status === "starting") &&
+    (failure?.code === "TOURI-E8001" || failure?.code === "TOURI-E8002")
+      ? null
+      : failure
   const [failureExpanded, setFailureExpanded] = useState(false)
   const failedAt = run?.finishedAt ?? message.updatedAt
   const failureTime = failureTimeLabel(failedAt)
@@ -670,9 +676,16 @@ export const ChatPanel = ({
       ) ?? null,
     [runs, thread],
   )
+  const serviceRecovered = bot?.machine === "vm" && (machine?.status === "starting" || machine?.status === "running")
   const visibleRuns = useMemo(
-    () => runs.filter((run) => run.threadId === thread?.id && (run.trigger === "routine" || run.routineRunId !== null)),
-    [runs, thread?.id],
+    () =>
+      runs.filter(
+        (run) =>
+          run.threadId === thread?.id &&
+          (run.trigger === "routine" || run.routineRunId !== null) &&
+          !(serviceRecovered && /^machine_service_(?:unavailable|start_failed)$/.test(run.errorClass ?? "")),
+      ),
+    [runs, thread?.id, serviceRecovered],
   )
 
   // A draft belongs to one conversation, including when navigating while an upload is pending.

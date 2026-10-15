@@ -366,6 +366,7 @@ export const ptBR = {
   Conversation: "Conversa",
   "No matches yet.": "Nenhum resultado encontrado.",
   "Warming the local workspace…": "Preparando o espaço de trabalho…",
+  "Preparing the computer…": "Preparando o computador…",
   "local connection": "conexão local",
   "Couldn’t connect to touri services.": "Não foi possível conectar aos serviços do touri.",
   "Retry connection": "Tentar novamente",

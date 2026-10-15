@@ -25,6 +25,7 @@ import { machineActionRoutes } from "../../src/vm/machine-actions"
 import { ProviderLoginError, providerLoginAccount, readProviderLogin } from "../../src/vm/provider-login"
 import { redactVmEvents } from "../../src/vm/redact-events"
 import { createVmRuntime, GUEST_READY_COMMAND } from "../../src/vm/runtime"
+import { MachineServiceError } from "../../src/vm/service-error"
 import type { VmCreateOptions } from "../../src/vm/types"
 import { vncPasswordFile } from "../../src/vm/vnc-auth"
 import { socketTicket } from "../fakes/ws-ticket"
@@ -43,7 +44,7 @@ afterEach(async () => {
 })
 const fixture = async (
   available = true,
-  timeouts: { boot?: number; ready?: number; auth?: number; exec?: number } = {},
+  timeouts: { boot?: number; ready?: number; auth?: number; exec?: number; service?: number } = {},
 ) => {
   const root = mkdtempSync(join(tmpdir(), "touri-vm-unit-"))
   const hostHome = join(root, "host-home")
@@ -971,17 +972,115 @@ const waitForTerminal = async (run: { status: string }) => {
   expect(["failed", "canceled", "succeeded"]).toContain(run.status)
 }
 
-test("service down reaches the chat and header as E8001 before the provider starts", async () => {
-  const f = await fixture()
+test.each(["status", "image", "start", "ready"])(
+  "a transient service failure during %s keeps the message pending and sends it once ready",
+  async (stage) => {
+    const f = await fixture(true, { service: 2_000 })
+    const bot = await f.bot()
+    let serviceReady = false
+    let startRequests = 0
+    const status = f.fake.provider.status
+    const unavailable = () => ({
+      success: false as const,
+      errorCode: "MACHINE_SERVICE_UNAVAILABLE" as const,
+      error: "XPC connection invalid",
+    })
+    let hitStage = stage === "status"
+    f.fake.provider.status = (input) => (hitStage && !serviceReady ? Promise.resolve(unavailable()) : status(input))
+    f.fake.provider.startService = async () => {
+      startRequests++
+      return { success: false, errorCode: "MACHINE_SERVICE_START_FAILED", error: "Service still starting" }
+    }
+    const image = f.fake.provider.ensureImage
+    const start = f.fake.provider.start
+    const exec = f.fake.provider.exec
+    if (stage === "image")
+      f.fake.provider.ensureImage = async (input) => {
+        hitStage = true
+        if (!serviceReady) throw new MachineServiceError("MACHINE_SERVICE_UNAVAILABLE", "XPC connection invalid")
+        return image(input)
+      }
+    if (stage === "start")
+      f.fake.provider.start = (input) => {
+        hitStage = true
+        return serviceReady ? start(input) : Promise.resolve(unavailable())
+      }
+    if (stage === "ready")
+      f.fake.provider.exec = (input) => {
+        if (input.args?.includes(GUEST_READY_COMMAND)) {
+          hitStage = true
+          if (!serviceReady) return Promise.resolve(unavailable())
+        }
+        return exec(input)
+      }
+    const states: Array<string> = []
+    const publish = f.runtime.kernel.publish
+    f.runtime.kernel.publish = (event) => {
+      if (event.type === "machine.updated") states.push(event.machine.status)
+      publish(event)
+    }
+    const scenario = join(f.root, "scenario.json")
+    writeFileSync(scenario, JSON.stringify({ deltas: ["Pronto"] }))
+    const spawn = f.fake.provider.spawn
+    const guests: Array<Promise<unknown>> = []
+    let providerStarts = 0
+    f.fake.provider.spawn = (input) => {
+      if (input.command !== "codex") return spawn(input)
+      providerStarts++
+      const child = f.runtime.kernel.spawnTree({
+        cmd: process.execPath,
+        args: ["run", join(import.meta.dir, "../fakes/fake-codex.ts"), ...(input.args ?? [])],
+        cwd: f.root,
+        env: { ...process.env, TOURI_FAKE_SCENARIO: scenario },
+      })
+      if (child.success) guests.push(child.exited)
+      return child
+    }
+    const { engine, run, store } = enqueueVmTurn(f, bot)
+    try {
+      for (let i = 0; i < 100 && startRequests === 0; i++) await Bun.sleep(5)
+      expect(startRequests).toBe(1)
+      expect(run.status).toBe("starting")
+      expect(providerStarts).toBe(0)
+      expect(f.vm.service.states()[0]).toMatchObject({ status: "starting", error: null, errorCode: null })
+      expect(store.activePath({ threadId: run.threadId }).some((message) => message.status === "failed")).toBe(false)
+      serviceReady = true
+      await waitForTerminal(run)
+      expect(run.status).toBe("succeeded")
+      expect(providerStarts).toBe(1)
+      expect(startRequests).toBe(1)
+      expect(engine.listRuns(run.threadId)).toHaveLength(1)
+      expect(f.vm.service.states()[0]).toMatchObject({ status: "running", error: null, errorCode: null })
+      expect(states).not.toContain("error")
+      expect(store.activePath({ threadId: run.threadId }).at(-1)?.text).toBe("Pronto")
+    } finally {
+      await engine.shutdown()
+      await Promise.all(guests)
+    }
+  },
+)
+
+test.each([false, true])("service timeout reaches the turn as E8001 with prewarming=%s", async (prewarm) => {
+  const f = await fixture(true, { service: 200 })
   const bot = await f.bot()
+  let startRequests = 0
+  f.fake.provider.startService = async () => {
+    startRequests++
+    return { success: true }
+  }
   f.fake.provider.status = async () => ({
     success: false,
     errorCode: "MACHINE_SERVICE_UNAVAILABLE",
-    error: "private XPC failure",
+    error: "private XPC connection error: Connection invalid",
   })
+  const warming = prewarm ? f.vm.service.intent({ botId: bot.id, intent: "composer-focus" }).catch(() => {}) : null
   const { engine, run, store } = enqueueVmTurn(f, bot)
   try {
+    await Bun.sleep(30)
+    expect(run.status).toBe("starting")
+    expect(f.vm.service.states()[0]).toMatchObject({ status: "starting", error: null })
     await waitForTerminal(run)
+    expect(startRequests).toBe(1)
     expect(run).toMatchObject({ status: "failed", errorClass: "machine_service_unavailable" })
     const reader = createRuntimePersistence({ database: f.runtime.kernel.db })
     expect(reader.getRun(run.id)).toEqual(run)
@@ -995,7 +1094,7 @@ test("service down reaches the chat and header as E8001 before the provider star
       .flatMap((message) => message.parts)
       .find((part) => part.type === "notice")
     if (notice?.type !== "notice") throw new Error("Missing failure notice")
-    expect(notice.text).toContain("O serviço de máquinas do macOS não está ativo.")
+    expect(notice.text).toContain("[TOURI-E8001]")
     expect(notice.text).toContain("TOURI-E8001")
     expect(f.vm.service.states()[0]).toMatchObject({ status: "error", errorCode: "TOURI-E8001" })
     expect(f.fake.calls.some((call) => call.action === "image" || call.action === "spawn")).toBe(false)
@@ -1011,6 +1110,7 @@ test("service down reaches the chat and header as E8001 before the provider star
     }
   } finally {
     await engine.shutdown()
+    await warming
   }
 })
 

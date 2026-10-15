@@ -5,6 +5,12 @@ import { userFacingError } from "./errors"
 export const machineStateForDisplay = (state: MachineState | undefined): MachineState | undefined => {
   // r8 panel: a canceled turn is not a machine state, including in the shared header.
   if (!state) return state
+  if (
+    (state.status === "starting" || state.status === "running") &&
+    (/TOURI-E800[12]/.test(state.errorCode ?? "") ||
+      /TOURI-E800[12]|machine_service_(?:unavailable|start_failed)/.test(state.error ?? ""))
+  )
+    return { ...state, error: null, errorCode: null }
   const canceled = Boolean(
     state.error &&
       (/^(?:canceled:\s*)?(?:Error:\s*)*(?:Turno cancelado|Cancelado por você)(?:\s.*)?$/i.test(

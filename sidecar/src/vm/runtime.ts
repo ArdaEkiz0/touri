@@ -49,6 +49,7 @@ import { redactVmEvents } from "./redact-events"
 import { DEFAULT_BOT_VM_MEMORY_MB, validBotVmMemory } from "./resources"
 import { type ConnectionKeys, connectionKeyId, memoryConnectionKeys, sealConnection } from "./sealed-connection"
 import { isMachineServiceFailure, MachineServiceError, machineErrorState } from "./service-error"
+import { withMachineServiceRecovery } from "./service-wait"
 import { abortVmWait, vmStage } from "./stage"
 import type { VmProvider, VmVolumeSpec } from "./types"
 import { vncPasswordFile } from "./vnc-auth"
@@ -112,7 +113,7 @@ export const createVmRuntime = ({
   capability?: MachineCapability
   now?: () => number
   hostHome?: string
-  timeouts?: Partial<{ boot: number; ready: number; auth: number; exec: number }>
+  timeouts?: Partial<{ boot: number; ready: number; auth: number; exec: number; service: number }>
   connectionKeys?: ConnectionKeys
 }) => {
   const limits = { boot: 600_000, ready: 90_000, auth: 15_000, exec: 30_000, ...timeouts }
@@ -430,13 +431,14 @@ export const createVmRuntime = ({
           })
           signal.throwIfAborted()
           if (ready.success && ready.code === 0) return
+          if (!ready.success && isMachineServiceFailure(ready.errorCode)) unwrap(ready)
           const detail = ready.success ? ready.stderr : ready.error
           if (detail.includes("Xvfb")) throw new Error(`A máquina não ficou pronta: ${kernel.redact(detail)}`)
           await Bun.sleep(100)
         }
       },
     })
-  const ensure = async (botId: string, signal?: AbortSignal) => {
+  const boot = async (botId: string, signal?: AbortSignal) => {
     const bot = botFor(botId)
     if (!capability.available) throw new Error(capability.reason ?? "sem virtualização neste host")
     let meta = metadata(botId)
@@ -658,6 +660,26 @@ export const createVmRuntime = ({
       bridges.get(botId)?.()
       bridges.delete(botId)
       connections.delete(botId)
+      throw error
+    }
+  }
+  const ensure = async (botId: string, signal?: AbortSignal) => {
+    try {
+      return await withMachineServiceRecovery({
+        action: () => boot(botId, signal),
+        probe: async (signal) => {
+          const meta = metadata(botId)
+          // A machine not created yet is probed by retrying its boot under the same deadline.
+          if (!meta) return
+          unwrap(await provider.status({ id: meta.vm_id, signal }))
+        },
+        startService: () => provider.startService(),
+        onWaiting: () =>
+          update(botId, { status: "starting", progress: "Preparando o computador…", error: null, connection: null }),
+        ...(signal ? { signal } : {}),
+        ...(limits.service !== undefined ? { timeoutMs: limits.service } : {}),
+      })
+    } catch (error) {
       // A stopped preparation may finish rejecting after the explicit stop has published its state.
       if (signal?.aborted && stateFor(botId).status === "stopped") throw error
       const failure = machineErrorState(error)
@@ -673,6 +695,7 @@ export const createVmRuntime = ({
   }
   const acquire: VmRuntime["acquire"] = async ({ botId, signal, runningOnly = false }) => {
     acquiring.set(botId, (acquiring.get(botId) ?? 0) + 1)
+    const prewarming = !runningOnly ? warming.get(botId)?.promise : undefined
     await vmStage({
       kernel,
       botId,
@@ -680,8 +703,10 @@ export const createVmRuntime = ({
       timeoutMs: limits.boot,
       timeoutMessage: `O início da máquina excedeu ${limits.boot / 1000} s`,
       ...(signal ? { signal } : {}),
-      action: (signal) =>
-        serial(
+      action: async (signal) => {
+        // A queued turn shares the warmup's service deadline and failure.
+        if (prewarming) await abortVmWait(signal, () => prewarming)
+        return serial(
           botId,
           async () => {
             signal.throwIfAborted()
@@ -700,7 +725,8 @@ export const createVmRuntime = ({
             touch(botId)
           },
           signal,
-        ),
+        )
+      },
     })
       .catch((error) => {
         const failure = machineErrorState(error)
