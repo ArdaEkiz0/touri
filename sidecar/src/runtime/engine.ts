@@ -800,7 +800,7 @@ export const createRuntimeEngine = ({
                 .then((value) => ({ value, failure: null }))
                 .catch((error: unknown) => ({ value: null, failure: error })),
             failureOf: (outcome) =>
-              outcome.failure
+              outcome.failure && !(outcome.failure instanceof MachineServiceError)
                 ? outcome.failure instanceof Error
                   ? outcome.failure.message
                   : String(outcome.failure)

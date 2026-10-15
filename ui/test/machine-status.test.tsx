@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import type { MachineState, Message } from "@touri/contracts"
+import type { MachineState, Message, Run } from "@touri/contracts"
 import { expect, it, vi } from "vitest"
 import { createMockApi } from "../src/api/mock"
 import { ChatPanel } from "../src/components/ChatPanel"
@@ -86,6 +86,67 @@ it("offers service recovery in the chat, header and composer with progress and a
   expect(screen.getByText(/Não foi possível iniciar o serviço de máquinas do macOS/)).toBeVisible()
   expect(screen.queryByText(/private XPC/)).not.toBeInTheDocument()
   expect(screen.getAllByRole("button", { name: "Iniciar serviço" })).toHaveLength(3)
+})
+
+it.each(["machine_service_unavailable", "machine_service_start_failed"])(
+  "replaces a stale %s warning with preparation and clears it when running",
+  (errorClass) => {
+    const { props } = fixture(errorClass)
+    const { rerender } = render(<ChatPanel {...props} />)
+    expect(screen.getByRole("alert")).toBeVisible()
+    rerender(<ChatPanel {...props} machine={{ ...props.machine, status: "starting" }} />)
+    expect(screen.getByText("Preparando o computador…")).toBeVisible()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByText("O computador precisa de atenção")).not.toBeInTheDocument()
+    expect(screen.queryByText(/não está ativo/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Iniciar serviço" })).not.toBeInTheDocument()
+    rerender(<ChatPanel {...props} machine={{ ...props.machine, status: "running" }} />)
+    expect(screen.getByText("Máquina · rodando")).toBeVisible()
+    expect(screen.queryByText("Preparando o computador…")).not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.queryByText("O computador precisa de atenção")).not.toBeInTheDocument()
+    expect(screen.queryByText(/não está ativo/)).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Iniciar serviço" })).not.toBeInTheDocument()
+  },
+)
+
+it("accepts a message while the machine is preparing", async () => {
+  const { props } = fixture("machine_service_unavailable", "starting")
+  render(<ChatPanel {...props} messages={[]} />)
+  expect(screen.getByText("Preparando o computador…")).toBeVisible()
+  // The composer may first wait for the provider login check.
+  await waitFor(() => expect(screen.queryByText("Colar token manualmente")).toBeNull())
+  const input = screen.getByRole("textbox")
+  fireEvent.change(input, { target: { value: "Prepare o relatório" } })
+  fireEvent.keyDown(input, { key: "Enter" })
+  await waitFor(() => expect(props.onSend).toHaveBeenCalledWith("Prepare o relatório", props.thread.activeLeafId, []))
+})
+
+it("removes a routine's service failure card when the machine recovers", () => {
+  const { props } = fixture("machine_service_unavailable")
+  const run: Run = {
+    id: "failed-turn",
+    threadId: props.thread.id,
+    botId: props.bot.id,
+    provider: "codex",
+    trigger: "routine",
+    requestMessageId: null,
+    replyMessageId: "failure",
+    externalTurnId: null,
+    status: "failed",
+    errorClass: "machine_service_unavailable",
+    errorMessage: "O serviço de máquinas do macOS não está ativo.",
+    usage: null,
+    routineRunId: null,
+    queuedAt: 1,
+    startedAt: 1,
+    finishedAt: 1,
+  }
+  const { container, rerender } = render(<ChatPanel {...props} runs={[run]} />)
+  expect(container.querySelector(".run-failed")).toBeInTheDocument()
+  rerender(<ChatPanel {...props} runs={[run]} machine={{ ...props.machine, status: "running" }} />)
+  expect(container.querySelector(".run-failed")).not.toBeInTheDocument()
+  expect(screen.queryByText(/não está ativo/)).not.toBeInTheDocument()
 })
 
 it("explains independent preparation after a failed VM turn and offers a machine stop", async () => {
