@@ -1,7 +1,11 @@
+<p align="center">
+  <img src="docs/assets/touri-logo.png" alt="touri" width="160">
+</p>
+
 # touri desktop
 
 touri is a local-first macOS app for running persistent AI teammates ("bots") on your own
-Codex or Claude Code CLI. Everything runs on your Mac: your conversations, memory, routines
+Codex, Claude Code or OpenCode CLI. Everything runs on your Mac: your conversations, memory, routines
 and secrets never leave the machine unless you explicitly configure a remote.
 
 Built with Tauri v2 (Rust shell), a Bun sidecar and a React UI.
