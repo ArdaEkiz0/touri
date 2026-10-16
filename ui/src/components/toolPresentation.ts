@@ -1,6 +1,7 @@
 import type { ApprovalPart, MessagePart } from "@touri/contracts"
 import { redactToolText } from "@touri/contracts/redaction"
 import { localizeToolText, t } from "../i18n"
+import { routineSchedule } from "../routineSchedule"
 
 export type ToolPart = Extract<MessagePart, { type: "tool_call" | "command" | "file_change" }>
 export type ToolKind = "terminal" | "browser" | "computer" | "files" | "tool"
@@ -87,7 +88,10 @@ const setupPresentation = (name: string, input: Record<string, unknown> | null) 
   const path = typeof input?.path === "string" ? input.path : ""
   let title: string
   let summary: string
-  if (leaf === "project_link") {
+  if (leaf === "routine_create") {
+    title = input?.routineId ? t("Ativar rotina") : t("Criar cron")
+    summary = `${String(input?.name ?? "")} · ${routineSchedule(String(input?.cron ?? ""), String(input?.timezone ?? ""))}`
+  } else if (leaf === "project_link") {
     title = t("Vincular projeto")
     summary = t("Vincular {name} ({path}) a este bot", { name: String(input?.name ?? input?.projectId ?? ""), path })
     const previous = asToolRecord(input?.previousProject)

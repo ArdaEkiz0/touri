@@ -232,9 +232,36 @@ export const init = async (kernel: Kernel): Promise<void> => {
   const routineCreate: ToolHandler = async ({ ctx, args }) => {
     const input = routineInput({ args: bodyRecord(args), botId: ctx.botId, enabled: false })
     const result = engine.createRoutine({ input, forceDisabled: true })
-    return result.success
-      ? textResult(`Created disabled routine ${result.routine.name}`, result.routine)
-      : toolError(result.errorCode, result.error)
+    if (!result.success) return toolError(result.errorCode, result.error)
+    const routine = result.routine
+    const reviewed = JSON.stringify(routine)
+    const isCurrent = () =>
+      !ctx.signal.aborted &&
+      JSON.stringify(engine.listRoutines(ctx.botId).find((value) => value.id === routine.id)) === reviewed
+    const approval = await kernel.services.use("approvals.present")?.({
+      ctx,
+      scope: { source: "mcp", server: "touri", tool: "routine_create" },
+      toolName: "routine_create",
+      input: {
+        routineId: routine.id,
+        name: routine.name,
+        cron: routine.cron,
+        timezone: routine.timezone,
+        continuity: routine.continuity,
+        timeoutMinutes: routine.timeoutMinutes,
+        prompt: routine.prompt,
+      },
+      allowStanding: false,
+      isCurrent,
+    })
+    if (!approval?.success || approval.behavior !== "allow" || !isCurrent())
+      return textResult(`Routine ${routine.name} remains paused; activation was not approved.`, routine)
+    // Only this explicit user approval can enable the reviewed routine; the tool
+    // update path still rejects enabled=true.
+    const activated = engine.updateRoutine({ routineId: routine.id, patch: { enabled: true }, fromTool: false })
+    return activated.success
+      ? textResult(`Created active routine ${activated.routine.name}`, activated.routine)
+      : toolError(activated.errorCode, activated.error)
   }
   const routineUpdate: ToolHandler = async ({ ctx, args }) => {
     const values = bodyRecord(args)
