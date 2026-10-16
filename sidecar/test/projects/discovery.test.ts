@@ -28,10 +28,12 @@ const fixture = () => {
   return { root, home, repo }
 }
 
-test("discovers Git directories and worktrees newest first, excluding registered and heavy/hidden trees", async () => {
+test("discovers Git repositories newest first, skipping linked worktrees, nested folders, registered and heavy/hidden trees", async () => {
   const f = fixture()
   const older = f.repo("javascript/older", 1_000)
-  const newer = f.repo("code/newer", 2_000, true)
+  f.repo("code/newer/packages/nested", 7_000)
+  const newer = f.repo("code/newer", 2_000)
+  f.repo("code/linked-worktree", 6_000, true)
   const registered = f.repo("Projects/registered", 3_000)
   const deepest = f.repo("dev/one/two/depth-four", 1_500)
   f.repo("dev/one/two/three/too-deep", 4_000)
