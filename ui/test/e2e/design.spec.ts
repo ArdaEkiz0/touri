@@ -17,7 +17,7 @@ test("design: stable workspace captures", async ({ page }) => {
     await expect(page.getByRole("textbox", { name: "Mensagem para mark" })).toBeVisible()
     if (capture) await page.screenshot({ path: `../docs/qa/design/${capture}-chat-${theme}.png` })
     await page.getByRole("button", { name: "touri", exact: true }).click()
-    await expect(page.getByRole("heading", { name: "Cron", exact: true })).toBeVisible()
+    await expect(page.getByRole("heading", { name: "Rotinas", exact: true })).toBeVisible()
     if (capture) await page.screenshot({ path: `../docs/qa/design/${capture}-cron-${theme}.png` })
     await page.getByRole("button", { name: /^Bots/ }).click()
     await page.getByRole("button", { name: "Preview do projeto" }).click()

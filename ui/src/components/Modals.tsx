@@ -47,6 +47,7 @@ import { ProviderLogin } from "./ProviderLogin"
 import { ProviderMark, providerName } from "./ProviderMark"
 import { ProviderModelField } from "./ProviderModelField"
 import { SecretsPanel } from "./RightPanels"
+import { RoutineSchedule } from "./RoutineSchedule"
 import { SettingsGroup, SettingsLayout, SettingsPane, SettingsRow, SettingsSwitch } from "./SettingsLayout"
 import "./settings.css"
 import { readInlinePreviewPreference, setInlinePreviewPreference } from "../features/desktop/inlinePreviewPreference"
@@ -1501,9 +1502,7 @@ export const BotSettingsModal = ({
                 <div className="routine-row" key={routine.id}>
                   <span>
                     <strong>{routine.name}</strong>
-                    <small>
-                      {routine.cron} · {routine.timezone}
-                    </small>
+                    <RoutineSchedule routine={routine} />
                   </span>
                   <button
                     type="button"

@@ -66,7 +66,7 @@ it("keeps bots reachable beside global screens, footer integrations and creation
   await screen.findByRole("textbox", { name: "Mensagem para mark" })
   const sidebar = screen.getByRole("navigation", { name: "Barra lateral" })
   fireEvent.click(within(sidebar).getByRole("button", { name: "touri" }))
-  expect(await screen.findByRole("heading", { name: "Cron" })).toBeVisible()
+  expect(await screen.findByRole("heading", { name: "Rotinas" })).toBeVisible()
   expect(sidebar.querySelectorAll(".bot-entry")).toHaveLength(api.getState().bots.length)
   fireEvent.click(sidebar.querySelector('[data-bot-id="bot-onb"]')?.closest("button") as HTMLElement)
   expect(await screen.findByRole("textbox", { name: "Mensagem para onb" })).toBeVisible()

@@ -66,7 +66,7 @@ if (capture) {
         await screenshot("notifications")
         await page.keyboard.press("Escape")
         await page.getByRole("tab", { name: "touri", exact: true }).click()
-        await expect(page.getByRole("heading", { name: "Cron", exact: true })).toBeVisible()
+        await expect(page.getByRole("heading", { name: "Rotinas", exact: true })).toBeVisible()
         await screenshot("page")
       })
     }

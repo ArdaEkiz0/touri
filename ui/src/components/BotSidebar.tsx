@@ -1,5 +1,5 @@
 import type { Bot, BotGroup, Id, Message, NotificationRecord, Run, Thread } from "@touri/contracts"
-import { type ReactNode, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { type ApprovalTarget, pendingApprovalTargets } from "../approvalNavigation"
 import { BOT_ACTIVITY_LABELS, type BotActivity } from "../botActivity"
 import { latestPreview } from "../botPreview"
@@ -157,7 +157,7 @@ export const Sidebar = (props: SidebarProps) => {
         <nav id="sidebar-touri-menu" className="touri-nav" aria-label="touri">
           <SidebarNavItem
             active={props.section === "touri" && props.touriPage === "cron"}
-            label="Cron"
+            label={t("Routines")}
             count={props.routineCount}
             onClick={() => props.onTouriPage("cron")}
             icon={
@@ -214,6 +214,7 @@ export const Sidebar = (props: SidebarProps) => {
           {ordered.bots.map((bot) => (
             <BotEntry
               key={bot.id}
+              navigationKey={`${props.section}:${props.touriPage}:${props.selectedBotId}:${props.selectedThreadId}`}
               bot={bot}
               activity={ordered.activity.get(bot.id) ?? null}
               onHold={ordered.hold}
@@ -323,6 +324,7 @@ const SidebarNavItem = ({
 )
 
 const BotEntry = ({
+  navigationKey,
   insertedThreads,
   bot,
   activity,
@@ -342,6 +344,7 @@ const BotEntry = ({
   onNotification,
   onDelete,
 }: {
+  navigationKey: string
   bot: Bot
   activity: BotActivity | null
   onHold: (botId: Id, reason: HoldReason, active: boolean) => void
@@ -362,6 +365,30 @@ const BotEntry = ({
   onDelete?: ((botId: string, name: string, deleteVolumes: boolean) => Promise<void>) | undefined
 }) => {
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const menuTrigger = useRef<HTMLButtonElement>(null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: dismiss on any navigation, including another bot's thread
+  useEffect(() => setMenuOpen(false), [navigationKey])
+  useEffect(() => {
+    if (!menuOpen) return
+    const dismiss = (event: Event) => {
+      const target = event.target as Node
+      if (!menuRef.current?.contains(target) && !menuTrigger.current?.contains(target)) setMenuOpen(false)
+    }
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false)
+    }
+    document.addEventListener("pointerdown", dismiss)
+    document.addEventListener("click", dismiss)
+    document.addEventListener("focusin", dismiss)
+    document.addEventListener("keydown", dismissOnEscape)
+    return () => {
+      document.removeEventListener("pointerdown", dismiss)
+      document.removeEventListener("click", dismiss)
+      document.removeEventListener("focusin", dismiss)
+      document.removeEventListener("keydown", dismissOnEscape)
+    }
+  }, [menuOpen])
   const [deleting, setDeleting] = useState(false)
   const snapshot = useMascotSnapshot(bot)
   const ids = threads.map((thread) => thread.id)
@@ -532,6 +559,7 @@ const BotEntry = ({
             className="bot-settings"
             aria-label={`Ações de ${bot.name}`}
             aria-haspopup="menu"
+            ref={menuTrigger}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
           >
@@ -542,6 +570,7 @@ const BotEntry = ({
       {menuOpen && (
         <div
           className="bot-context-menu"
+          ref={menuRef}
           role="menu"
           aria-label={`Ações de ${bot.name}`}
           onKeyDown={(event) => {

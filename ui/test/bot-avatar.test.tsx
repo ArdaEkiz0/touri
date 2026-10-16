@@ -187,7 +187,7 @@ describe("procedural avatars", () => {
       expect(avatar.querySelector("[data-avatar-body]")).toHaveAttribute("fill", "#2468ac")
     }
     fireEvent.click(screen.getByRole("button", { name: "touri" }))
-    fireEvent.click(screen.getByRole("button", { name: /Cron/ }))
+    fireEvent.click(screen.getByRole("button", { name: /Rotinas/ }))
     const cronAvatar = container.querySelector('.routine-item .tb-avatar[data-bot-id="bot-mark"]')
     expect(cronAvatar).toHaveAttribute("data-avatar-shape", "hexagone")
     expect(cronAvatar).toHaveAttribute("data-avatar-mood", "waiting")

@@ -74,7 +74,7 @@ for (const width of [1440, 1100]) {
       await shot("desktop-expanded")
       await panel.getByRole("button", { name: "Recolher", exact: true }).click()
       await page.getByRole("button", { name: "touri", exact: true }).click()
-      await expect(page.getByRole("heading", { name: "Cron", exact: true })).toBeVisible()
+      await expect(page.getByRole("heading", { name: "Rotinas", exact: true })).toBeVisible()
       await shot("cron")
       await page.getByRole("button", { name: /Integrações/ }).click()
       await expect(page.getByRole("button", { name: "Gerenciar Arquivos locais" })).toBeVisible()

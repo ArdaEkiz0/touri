@@ -34,7 +34,7 @@ for (const theme of ["light", "dark"] as const) {
         })
       }
       await page.getByRole("button", { name: "touri", exact: true }).click()
-      await expect(page.getByRole("heading", { name: "Cron", exact: true })).toBeVisible()
+      await expect(page.getByRole("heading", { name: "Rotinas", exact: true })).toBeVisible()
       await shot("cron")
       if (phase === "after") {
         await expect(page.getByRole("button", { name: "Rodar agora Resumo da manhã" })).toHaveText("Rodar agora")

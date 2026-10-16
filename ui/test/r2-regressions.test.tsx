@@ -130,9 +130,9 @@ describe("r2 regressions", () => {
     const count = mock.calls.filter((call) => call.route === "GET /routines").length
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Atualizar" })))
     await waitFor(() => expect(mock.calls.filter((call) => call.route === "GET /routines").length).toBe(count + 1))
-    expect(screen.getByRole("heading", { name: "Cron" })).toBeVisible()
+    expect(screen.getByRole("heading", { name: "Rotinas" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Pausadas" })).toHaveClass("active")
-    fireEvent.click(screen.getByRole("button", { name: /Criar cron/ }))
+    fireEvent.click(screen.getByRole("button", { name: /Criar rotina/ }))
     expect(screen.getByLabelText("Bot")).toHaveValue("bot-onb")
     fireEvent.click(screen.getByRole("button", { name: "Fechar" }))
     fireEvent.click(screen.getByRole("button", { name: /^Bots/ }))

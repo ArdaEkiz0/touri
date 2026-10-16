@@ -2,6 +2,7 @@ import type { ApprovalPart } from "@touri/contracts"
 import { useId, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import { userFacingError } from "../errors"
+import { t } from "../i18n"
 import { ToolCallCard } from "./ToolCallCard"
 import { type ToolPart, toolPresentation } from "./toolPresentation"
 
@@ -127,7 +128,11 @@ export const ApprovalCard = ({
                 disabled={busy || !api}
                 onClick={() => void answer(true)}
               >
-                {busy ? "Enviando…" : "Aprovar"}
+                {busy
+                  ? "Enviando…"
+                  : part.scope?.server === "touri" && toolName === t("Ativar rotina")
+                    ? t("Ativar rotina")
+                    : "Aprovar"}
               </button>
               {part.allowStanding && (
                 <span className="tool-standing-action">
