@@ -573,6 +573,9 @@ const AppContent = ({ kernel }: AppProps) => {
                 api={api}
                 bot={selectedBot}
                 machine={data.machines.find((state) => state.botId === selectedBot.id)}
+                activeTurns={data.runs.some(
+                  (run) => run.botId === selectedBot.id && ["queued", "starting", "running"].includes(run.status),
+                )}
               />
             </ErrorBoundary>
           ) : (
@@ -788,6 +791,10 @@ const AppContent = ({ kernel }: AppProps) => {
                             bot={selectedBot}
                             machine={data.machines.find((state) => state.botId === selectedBot.id)}
                             routines={botRoutines}
+                            activeTurns={data.runs.some(
+                              (run) =>
+                                run.botId === selectedBot.id && ["queued", "starting", "running"].includes(run.status),
+                            )}
                             paused={modal !== null || searchOpen || notificationsOpen}
                             expanded={expandedBot === selectedBot.id}
                             onExpand={() => setExpandedBot((id) => (id === selectedBot.id ? null : selectedBot.id))}

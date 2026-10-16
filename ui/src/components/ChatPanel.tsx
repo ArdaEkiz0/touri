@@ -850,6 +850,9 @@ export const ChatPanel = ({
           machine={machine}
           api={api}
           turnFailed={!activeRun && latestReply?.status === "failed"}
+          activeTurns={runs.some(
+            (run) => run.botId === bot.id && ["queued", "starting", "running"].includes(run.status),
+          )}
         />
       )}
       {computerGrant && computerGrant.threadId === thread.id && (

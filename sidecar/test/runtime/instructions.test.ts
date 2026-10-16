@@ -55,6 +55,7 @@ for (const provider of ["codex", "claude", "opencode"] as const) {
     const instructions = await f.compose()
     for (const tool of [
       "project_discover",
+      "bot_rename",
       "project_link",
       "project_unlink",
       "folder_access_request",
@@ -62,6 +63,8 @@ for (const provider of ["codex", "claude", "opencode"] as const) {
     ])
       expect(instructions).toContain(tool)
     expect(instructions).toContain("instead of describing UI steps")
+    expect(instructions).toContain("without an approval card")
+    expect(instructions).toContain("After success, use the returned name as your current identity")
     expect(instructions).toContain("explicit approval card")
     expect(instructions).toContain("Any-folder access is a user-only settings toggle")
     expect(instructions).toContain("VM changes take effect on the next turn")

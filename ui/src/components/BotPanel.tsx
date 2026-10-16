@@ -21,6 +21,7 @@ export const BotPanel = ({
   machine: rawMachine,
   routines,
   paused,
+  activeTurns = false,
   expanded,
   onExpand,
   onWindow,
@@ -38,6 +39,7 @@ export const BotPanel = ({
   machine?: MachineState | undefined
   routines: Routine[]
   paused: boolean
+  activeTurns?: boolean
   expanded: boolean
   onExpand: () => void
   onWindow: () => Promise<void>
@@ -291,6 +293,7 @@ export const BotPanel = ({
             bot={bot}
             machine={machine}
             paused={paused}
+            activeTurns={activeTurns}
             expanded={expanded}
             onExpand={onExpand}
             onWindow={onWindow}

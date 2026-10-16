@@ -12,6 +12,7 @@ import type {
   Routine,
   SecretMeta,
 } from "@touri/contracts"
+import { normalizeBotName } from "@touri/contracts"
 import { avatarProfileFor } from "@touri/contracts/avatar"
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { TauriInvoke, UiApi } from "../api/client"
@@ -488,6 +489,12 @@ export const BotCreateModal = ({
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault()
     if (!name.trim() || saving || projectBusy) return
+    const validName = normalizeBotName(name)
+    if (!validName) {
+      goToStep(0)
+      setError(t("Use de 1 a 80 caracteres, sem quebras de linha ou caracteres de controle."))
+      return
+    }
     if (api && machine.machine !== "cloud" && !providerLoginReady) {
       goToStep(2)
       return
@@ -500,7 +507,7 @@ export const BotCreateModal = ({
     setError(null)
     try {
       const input = {
-        name: name.trim(),
+        name: validName,
         roleLine: roleLine.trim() || null,
         title: title.trim() || null,
         provider,
@@ -998,6 +1005,7 @@ export const BotSettingsModal = ({
   initialSection,
   focusSetting,
 }: BotSettingsModalProps) => {
+  const [name, setName] = useState(bot.name)
   const [avatar, setAvatar] = useState<AvatarChoice>(() => {
     const profile = avatarProfileFor(bot)
     return { avatarShape: profile.shape, color: bot.color }
@@ -1053,6 +1061,12 @@ export const BotSettingsModal = ({
   }, [permissionsOnly])
   const save = async (): Promise<void> => {
     if (saving || updating) return
+    const validName = normalizeBotName(name)
+    if (!validName) {
+      setSection("general")
+      setSaveError(t("Use de 1 a 80 caracteres, sem quebras de linha ou caracteres de controle."))
+      return
+    }
     if (
       machine.machine === "vm" &&
       (!Number.isInteger(machine.machineIdleMinutes) ||
@@ -1067,6 +1081,7 @@ export const BotSettingsModal = ({
     setSaveError(null)
     try {
       await actions.updateBot(bot.id, {
+        name: validName,
         ...avatar,
         ...machine,
         roleLine: roleLine.trim() || null,
@@ -1114,6 +1129,13 @@ export const BotSettingsModal = ({
       >
         <SettingsPane {...botPane("general")}>
           <SettingsGroup title="Identidade">
+            <SettingsRow
+              title={t("Name")}
+              description={t("O nome aparece na navegação e nas conversas.")}
+              htmlFor="settings-name"
+            >
+              <input id="settings-name" value={name} onChange={(event) => setName(event.target.value)} />
+            </SettingsRow>
             <SettingsRow title="Função" description="Um resumo do trabalho do bot na equipe." htmlFor="settings-role">
               <input id="settings-role" value={roleLine} onChange={(event) => setRoleLine(event.target.value)} />
             </SettingsRow>
