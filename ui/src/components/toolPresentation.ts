@@ -89,7 +89,10 @@ const setupPresentation = (name: string, input: Record<string, unknown> | null) 
   let summary: string
   if (leaf === "project_link") {
     title = t("Vincular projeto")
-    summary = t("Vincular {name} ({path}) a este bot", { name: String(input?.name ?? input?.projectId ?? ""), path })
+    summary = t("Vincular {name} ({path}) a este bot", {
+      name: String(input?.name ?? path.split("/").filter(Boolean).at(-1) ?? input?.projectId ?? t("Projeto")),
+      path,
+    })
     const previous = asToolRecord(input?.previousProject)
     if (previous)
       summary += ` ${t("Substitui o projeto {name} ({path}).", { name: String(previous.name), path: String(previous.path) })}`
@@ -241,5 +244,17 @@ export const approvalMatchesTool = (approval: ApprovalPart, part: ToolPart): boo
   if (toolLeaf(name) !== toolLeaf(part.tool)) return false
   const mcpServer = /^mcp__(.+?)__/.exec(part.tool)?.[1]
   if (approval.scope?.server && mcpServer && approval.scope.server !== mcpServer) return false
+  // Setup cards retain the original spelling for matching and the canonical
+  // path for presentation. Enrichment must not split one operation into two cards.
+  if (approval.scope?.source === "mcp" && approval.scope.server === "touri" && mcpServer === "touri") {
+    const original = asToolRecord(parseToolValue(part.inputJson))
+    const target = args?.requestedPath ?? args?.path
+    if (toolLeaf(name) === "project_link") {
+      if (typeof original?.projectId === "string") return original.projectId === args?.projectId
+      if (typeof original?.path === "string") return original.path === target
+    }
+    if (toolLeaf(name) === "folder_access_request")
+      return typeof original?.path === "string" && original.path === target && original.mode === args?.mode
+  }
   return canonicalValue(input) === canonicalValue(parseToolValue(part.inputJson))
 }

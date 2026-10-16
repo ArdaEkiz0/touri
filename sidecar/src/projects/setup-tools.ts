@@ -3,7 +3,7 @@ import { homedir } from "node:os"
 import { basename, isAbsolute, join, parse } from "node:path"
 import type { Bot, Kernel, ToolContext, ToolRegistration, ToolResult } from "@touri/contracts"
 import { getDelegation } from "../groups/security"
-import { excludedBotFolders, parseBotFolders, resolveBotFolder, withinFolder } from "../kernel/bot-folders"
+import { excludedBotFolders, parseBotFolders, withinFolder } from "../kernel/bot-folders"
 import { discoverProjects } from "./discovery"
 import { inspectGitMetadata } from "./git"
 import type { ProjectStore } from "./types"
@@ -54,7 +54,12 @@ export const createSetupTools = ({
     if (!configure) return denied("A configuração do bot está indisponível.")
     const result = configure({ botId: bot.id, patch })
     if (!result.success) return result
-    const message = bot.machine === "vm" ? `${text} A mudança entra em vigor no próximo turno da VM.` : text
+    const message =
+      bot.machine === "vm"
+        ? `${text} A mudança entra em vigor no próximo turno da VM.`
+        : bot.machine === "local"
+          ? `${text} A configuração foi salva neste Mac e será aplicada no próximo turno local.`
+          : text
     return {
       success: true as const,
       content: [{ type: "text" as const, text: message }],
@@ -182,6 +187,7 @@ export const createSetupTools = ({
             "project_link",
             {
               path,
+              requestedPath: input.path ?? null,
               name,
               projectId: project?.id ?? null,
               previousProject: previous ? { name: previous.name, path: previous.path } : null,
@@ -228,15 +234,11 @@ export const createSetupTools = ({
         if (bot.machine === "cloud") return denied("Pastas deste Mac não estão disponíveis na nuvem.")
         const input = args as { path: string; mode: "read" | "read-write" }
         try {
-          const path = resolveBotFolder(hostPath(input.path))
+          const path = hostPath(input.path)
           const access = input.mode === "read" ? "read-only" : "read-write"
-          const folders = parseBotFolders([
-            ...(bot.folders ?? []).filter((folder) => folder.path !== path),
-            { path, access },
-          ])
           const targetCurrent = () => {
             try {
-              return resolveBotFolder(hostPath(input.path)) === path
+              return hostPath(input.path) === path
             } catch {
               return false
             }
@@ -247,6 +249,7 @@ export const createSetupTools = ({
             "folder_access_request",
             {
               path,
+              requestedPath: input.path,
               mode: input.mode,
               previousMode: bot.folders?.find((folder) => folder.path === path)?.access ?? null,
               nextTurn: bot.machine === "vm",
@@ -254,6 +257,13 @@ export const createSetupTools = ({
             targetCurrent,
           )
           if (!authorized?.()) return denied("O acesso não foi aprovado ou a configuração mudou.")
+          // Walking the requested tree and revalidating existing grants require
+          // consent too. Keep the final guard adjacent to the configuration write.
+          const folders = parseBotFolders([
+            ...(bot.folders ?? []).filter((folder) => folder.path !== path),
+            { path, access },
+          ])
+          if (!authorized()) return denied("O acesso não foi aprovado ou a configuração mudou.")
           return changed(
             bot,
             { folders },

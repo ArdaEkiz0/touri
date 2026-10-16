@@ -304,6 +304,84 @@ for (const behavior of ["deny", "allow"] as const) {
   })
 }
 
+test("canceling a pending project link starts no process and executes no repository helper", async () => {
+  const f = await fixture({ access: "read-only" })
+  const marker = await executableRepository(f)
+  const shellEnv = f.runtime.kernel.shellEnv
+  const spawnTree = f.runtime.kernel.spawnTree
+  let environmentLoads = 0
+  let processes = 0
+  f.runtime.kernel.shellEnv = async () => {
+    environmentLoads++
+    return shellEnv()
+  }
+  f.runtime.kernel.spawnTree = (args) => {
+    processes++
+    return spawnTree(args)
+  }
+  const controller = new AbortController()
+  const call = f.call("project_link", { path: f.path }, f.caller, controller.signal)
+  await f.pending()
+  controller.abort()
+  expect(await call).toMatchObject({ success: false, errorCode: "CLIENT_DISCONNECTED" })
+  expect(environmentLoads).toBe(0)
+  expect(processes).toBe(0)
+  expect(existsSync(marker)).toBe(false)
+  expect(f.store.listProjects()).toEqual([])
+  expect(f.currentBot()?.projectId).toBeNull()
+})
+
+test("project link revalidates bot settings after post-consent inspection", async () => {
+  const f = await fixture()
+  const shellEnv = f.runtime.kernel.shellEnv
+  f.runtime.kernel.shellEnv = async () => {
+    f.db.query("UPDATE bots SET approvals = 'on-request' WHERE id = ?").run(f.bot.id)
+    return shellEnv()
+  }
+  const call = f.call("project_link", { path: f.path })
+  expect((await f.answer("allow")).status).toBe(200)
+  expect(await call).toMatchObject({ success: false, errorCode: "DENIED" })
+  expect(f.store.listProjects()).toEqual([])
+  expect(f.currentBot()?.projectId).toBeNull()
+})
+
+for (const behavior of ["deny", "allow"] as const) {
+  test(`folder ${behavior} defers walking both new and existing grants until consent`, async () => {
+    const f = await fixture()
+    const existing = join(f.home, "existing")
+    mkdirSync(existing)
+    expect(
+      (await f.request("PATCH", `/bots/${f.bot.id}`, { folders: [{ path: existing, access: "read-only" }] })).status,
+    ).toBe(200)
+    // Either scan would reject these outward links. Neither may run to present
+    // the card or check that a pending approval still targets the same folder.
+    symlinkSync(f.root, join(existing, "outside"))
+    symlinkSync(f.root, join(f.path, "outside"))
+    const call = f.call("folder_access_request", { path: f.path, mode: "read-write" })
+    const card = await f.pending()
+    expect(card.decision).toBe("pending")
+    expect((await f.answer(behavior)).status).toBe(200)
+    expect(await call).toMatchObject({
+      success: false,
+      errorCode: behavior === "deny" ? "DENIED" : "INVALID_ARGS",
+    })
+    expect(f.currentBot()?.folders).toEqual([{ path: existing, access: "read-only" }])
+  })
+}
+
+for (const tool of ["project_link", "folder_access_request"]) {
+  test(`${tool} preserves the original path for card matching and reviews the canonical target`, async () => {
+    const f = await fixture()
+    const alias = join(f.home, "alias")
+    symlinkSync(f.path, alias)
+    const call = f.call(tool, { path: alias, ...(tool === "folder_access_request" ? { mode: "read" } : {}) })
+    expect((await f.pending()).detail).toContain(`"requestedPath":"${alias}"`)
+    expect((await f.pending()).detail).toContain(`"path":"${f.path}"`)
+    expect((await f.answer("allow")).status).toBe(200)
+    expect((await call).success).toBe(true)
+  })
+}
+
 test("project link revalidates the reviewed realpath after post-consent inspection", async () => {
   const f = await fixture()
   const alias = join(f.home, "reviewed")
@@ -386,7 +464,10 @@ test("projectId and registered paths reuse a project and unlink is visible witho
   expect(f.events).toContainEqual(
     expect.objectContaining({
       type: "message.created",
-      message: expect.objectContaining({ kind: "notice", text: "Projeto Hodler desvinculado deste bot." }),
+      message: expect.objectContaining({
+        kind: "notice",
+        text: "Projeto Hodler desvinculado deste bot. A configuração foi salva neste Mac e será aplicada no próximo turno local.",
+      }),
     }),
   )
 })
@@ -412,7 +493,9 @@ for (const [mode, access] of [
     expect(f.events).toContainEqual(
       expect.objectContaining({
         type: "message.created",
-        message: expect.objectContaining({ text: `Acesso à pasta ${f.path} removido deste bot.` }),
+        message: expect.objectContaining({
+          text: `Acesso à pasta ${f.path} removido deste bot. A configuração foi salva neste Mac e será aplicada no próximo turno local.`,
+        }),
       }),
     )
   })
@@ -498,6 +581,35 @@ test("configuration edits or filesystem retargeting while a card is pending inva
   expect((await link).success).toBe(false)
   expect(f.store.listProjects()).toEqual([])
   expect(f.currentBot()?.folders).toEqual([])
+})
+
+test("local setup reports the host and next local turn for project and folder changes", async () => {
+  const f = await fixture()
+  for (const [name, args] of [
+    ["project_link", { path: f.path }],
+    ["folder_access_request", { path: f.path, mode: "read-write" }],
+  ] as const) {
+    const call = f.call(name, args)
+    expect((await f.pending()).detail).toContain('"nextTurn":false')
+    expect((await f.answer("allow")).status).toBe(200)
+    const result = await call
+    expect(result).toMatchObject({
+      success: true,
+      structured: { effective: "next-turn" },
+      content: [{ type: "text", text: expect.stringContaining("próximo turno local") }],
+    })
+    expect(JSON.stringify(result)).not.toContain("VM")
+    expect(JSON.stringify(result)).toContain("neste Mac")
+  }
+  for (const [name, args] of [
+    ["project_unlink", {}],
+    ["folder_access_remove", { path: f.path }],
+  ] as const) {
+    const result = await f.call(name, args)
+    expect(result.success).toBe(true)
+    expect(JSON.stringify(result)).toContain("próximo turno local")
+    expect(JSON.stringify(result)).not.toContain("VM")
+  }
 })
 
 test("VM setup is saved for next turn without invoking any VM runtime", async () => {
