@@ -105,6 +105,7 @@ export const Composer = ({
   const [caret, setCaret] = useState(draft.length)
   const [mentionIndex, setMentionIndex] = useState(0)
   const [mentionClosed, setMentionClosed] = useState(false)
+  const mentionListId = useId()
   const mention = draft.slice(0, caret).match(/(?:^|\s)@([^@\n]*)$/u)
   const suggestions =
     !mentionClosed && focused && mention
@@ -112,6 +113,7 @@ export const Composer = ({
           .filter((b) => b.name.toLocaleLowerCase().startsWith((mention[1] ?? "").toLocaleLowerCase()))
           .slice(0, 8)
       : []
+  const activeMention = suggestions[mentionIndex] ?? suggestions[0]
   const insertMention = (bot: Bot) => {
     const start = caret - (mention?.[1]?.length ?? 0) - 1
     const token = `@${/\s/.test(bot.name) ? JSON.stringify(bot.name) : bot.name} `
@@ -311,7 +313,9 @@ export const Composer = ({
       : bot?.provider === "claude"
         ? "Claude Code"
         : "Codex"
-  const model = groupName ? `${mentionBots.length} membros` : bot?.model || "Padrão do provedor"
+  const model = groupName
+    ? t(mentionBots.length === 1 ? "{count} membro" : "{count} membros", { count: mentionBots.length })
+    : bot?.model || "Padrão do provedor"
   const hasContent = Boolean(draft.trim() || files.length)
   const showStop = Boolean(activeRun && !hasContent && !sending)
   const composer = (
@@ -391,7 +395,9 @@ export const Composer = ({
         }}
         onBlur={() => setFocused(false)}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-        aria-controls={suggestions.length ? "group-mention-list" : undefined}
+        aria-controls={suggestions.length ? mentionListId : undefined}
+        aria-autocomplete={groupName ? "list" : undefined}
+        aria-activedescendant={activeMention ? `${mentionListId}-${activeMention.id}` : undefined}
         onChange={(event) => {
           setCaret(event.target.selectionStart)
           setMentionIndex(0)
@@ -416,8 +422,7 @@ export const Composer = ({
             else if (event.key === "ArrowDown") setMentionIndex((i) => (i + 1) % suggestions.length)
             else if (event.key === "ArrowUp") setMentionIndex((i) => (i + suggestions.length - 1) % suggestions.length)
             else {
-              const bot = suggestions[mentionIndex] ?? suggestions[0]
-              if (bot) insertMention(bot)
+              if (activeMention) insertMention(activeMention)
             }
             return
           }
@@ -438,12 +443,15 @@ export const Composer = ({
         }}
       />
       {suggestions.length > 0 && (
-        <div className="group-mentions" id="group-mention-list" role="listbox" aria-label="Mencionar membro">
-          {suggestions.map((bot, index) => (
+        <div className="group-mentions" id={mentionListId} role="listbox" aria-label={t("Mencionar membro")}>
+          {suggestions.map((bot) => (
             <button
               type="button"
               role="option"
-              aria-selected={index === mentionIndex}
+              id={`${mentionListId}-${bot.id}`}
+              aria-label={`@${bot.name}`}
+              tabIndex={-1}
+              aria-selected={bot.id === activeMention?.id}
               key={bot.id}
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => insertMention(bot)}
