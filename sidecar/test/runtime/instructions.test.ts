@@ -50,6 +50,24 @@ const fixture = async ({
 }
 
 for (const provider of ["codex", "claude", "opencode"] as const) {
+  test(`${provider}: bot setup instructions use approval tools instead of UI steps`, async () => {
+    const f = await fixture({ provider })
+    const instructions = await f.compose()
+    for (const tool of [
+      "project_discover",
+      "project_link",
+      "project_unlink",
+      "folder_access_request",
+      "folder_access_remove",
+    ])
+      expect(instructions).toContain(tool)
+    expect(instructions).toContain("instead of describing UI steps")
+    expect(instructions).toContain("explicit approval card")
+    expect(instructions).toContain("Any-folder access is a user-only settings toggle")
+    expect(instructions).toContain("VM changes take effect on the next turn")
+    expect(instructions).not.toContain("tools and instructions cannot change grants")
+  })
+
   test(`${provider}: full local access discovers files without requiring a project`, async () => {
     const f = await fixture({ provider })
     const instructions = await f.compose({
