@@ -56,6 +56,31 @@ const activeRun = (bot: Bot): Run => ({
 })
 
 describe("composer project chip", () => {
+  it.each(["bot-only", "project-first", "bot-first"])(
+    "F011: reflects an approved project link across navigation (%s)",
+    async (order) => {
+      const { api, bot } = await setup({ linked: false })
+      const { project } = await api.request("POST /projects", { path: "/tmp/Hodler", name: "Hodler" })
+      act(() => {
+        if (order === "project-first") api.emit({ type: "project.created", project })
+        api.emit({ type: "bot.updated", bot: { ...bot, projectId: project.id } })
+        if (order === "bot-first") api.emit({ type: "project.created", project })
+      })
+      await waitFor(() => expect(chip()).toHaveTextContent("Hodler"))
+      fireEvent.click(screen.getByRole("button", { name: /^onb Operations/ }))
+      await screen.findByRole("textbox", { name: "Mensagem para onb" })
+      fireEvent.click(screen.getByRole("button", { name: /^mark Campaign/ }))
+      await screen.findByRole("textbox", { name: "Mensagem para mark" })
+      expect(chip()).toHaveTextContent("Hodler")
+      fireEvent.click(chip())
+      expect(within(picker()).getByRole("menuitemradio", { name: "Hodler" })).toHaveAttribute("aria-checked", "true")
+      expect(within(picker()).getByRole("menuitemradio", { name: /Nenhum projeto/ })).toHaveAttribute(
+        "aria-checked",
+        "false",
+      )
+    },
+  )
+
   it("shows the current project and lists only active projects with the current one checked", async () => {
     const { current, other } = await setup()
     expect(chip()).toHaveTextContent(current.name)

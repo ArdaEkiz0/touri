@@ -1,10 +1,60 @@
-import { act, fireEvent, render, screen, within } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import type { Message } from "@touri/contracts"
 import { describe, expect, it } from "vitest"
 import App from "../src/App"
 import { createMockApi } from "../src/api/mock"
 
 describe("Grupos", () => {
+  it("F026/F027: exposes every mention, announces arrow selection and uses the singular after deletion", async () => {
+    const user = userEvent.setup()
+    const api = createMockApi()
+    const [first, second] = api.getState().bots
+    if (!first || !second) throw new Error("Missing members")
+    first.name = "Bia QA"
+    second.name = "Nico VM QA"
+    await api.request("POST /groups", {
+      name: "Equipe QA",
+      color: "#dc2626",
+      avatarShape: "cercle",
+      memberIds: [first.id, second.id],
+      coordinatorBotId: first.id,
+    })
+    render(<App kernel={{ services: { api } }} />)
+    await screen.findByRole("textbox", { name: "Mensagem para Bia QA" })
+    await user.click(screen.getByRole("button", { name: /^Equipe QA$/ }))
+    const input = await screen.findByRole("textbox", { name: "Mensagem para Equipe QA" })
+    expect(screen.getByRole("button", { name: "Escolher modelo: Grupo · 2 membros" })).toBeVisible()
+    await user.click(input)
+    await user.type(input, "@")
+    const list = screen.getByRole("listbox", { name: "Mencionar membro" })
+    const options = within(list).getAllByRole("option")
+    expect(options).toHaveLength(2)
+    expect(options[0]).toHaveAccessibleName("@Bia QA")
+    expect(options[1]).toHaveAccessibleName("@Nico VM QA")
+    expect(document.getElementById(input.getAttribute("aria-activedescendant") ?? "")).toBe(options[0])
+    await user.keyboard("{ArrowDown}")
+    expect(options[1]).toHaveAttribute("aria-selected", "true")
+    expect(document.getElementById(input.getAttribute("aria-activedescendant") ?? "")).toBe(options[1])
+    expect(input).toHaveFocus()
+    await user.keyboard("{Enter}")
+    expect(input).toHaveValue('@"Nico VM QA" ')
+    expect(input).not.toHaveAttribute("aria-activedescendant")
+    expect(screen.queryByRole("listbox", { name: "Mencionar membro" })).toBeNull()
+    await user.clear(input)
+    await user.type(input, "@")
+    await user.keyboard("{ArrowUp}")
+    expect(
+      within(screen.getByRole("listbox", { name: "Mencionar membro" })).getByRole("option", { name: "@Nico VM QA" }),
+    ).toHaveAttribute("aria-selected", "true")
+    await user.keyboard("{Enter}")
+    expect(input).toHaveValue('@"Nico VM QA" ')
+    await act(async () => {
+      await api.request("DELETE /bots/:id", { name: second.name, deleteVolumes: false }, { id: second.id })
+    })
+    await waitFor(() => expect(screen.getByRole("button", { name: "Escolher modelo: Grupo · 1 membro" })).toBeVisible())
+  })
+
   it("creates a group, completes @mentions with keyboard, edits membership and opens own conversations", async () => {
     const api = createMockApi()
     render(<App kernel={{ services: { api } }} />)
@@ -42,7 +92,7 @@ describe("Grupos", () => {
     })
     expect(api.calls.some((c) => c.route === "POST /groups/:id/threads")).toBe(true)
   })
-  it("shows each reply's member mascot/name and lists memberships in Detalhes", async () => {
+  it("F028: preserves sender identity with a neutral deleted-member avatar in existing history", async () => {
     const api = createMockApi()
     const created = await api.request("POST /groups", {
       name: "Equipe",
@@ -74,10 +124,18 @@ describe("Grupos", () => {
     const row = document.querySelector('[data-message-id="group-reply"]')
     expect(row?.querySelector(".message-role")?.textContent).toBe("onb")
     expect(row?.querySelector(".tb-avatar")).toBeTruthy()
+    expect(row?.querySelector(".tb-avatar")).toHaveAttribute("data-bot-id", "bot-onb")
     if (!screen.queryByRole("complementary", { name: "Painel de mark" }))
       fireEvent.click(screen.getByRole("button", { name: "Painel do bot" }))
     const panel = screen.getByRole("complementary", { name: "Painel de mark" })
     expect(within(panel).getByRole("heading", { name: "Grupos" })).toBeVisible()
     expect(within(panel).getByRole("button", { name: "Equipe · coordenador" })).toBeVisible()
+    await act(async () => {
+      await api.request("DELETE /bots/:id", { name: "onb", deleteVolumes: false }, { id: "bot-onb" })
+    })
+    const deleted = await within(row as HTMLElement).findByRole("img", { name: "Membro excluído: onb" })
+    expect(deleted.querySelector(".tb-avatar")).toHaveAttribute("data-bot-id", "bot-onb")
+    expect(row?.querySelector('[data-bot-id="bot-mark"]')).toBeNull()
+    expect(row?.querySelector(".message-role")).toHaveTextContent("onb")
   })
 })

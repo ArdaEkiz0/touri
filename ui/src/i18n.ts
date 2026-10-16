@@ -2,6 +2,31 @@ import { userFacingError } from "./errors"
 /** All UI copy lives here. pt-BR is the default; English is available for a future locale picker. */
 export type Locale = "pt-BR" | "en"
 export const ptBR = {
+  "{count} membro": "{count} membro",
+  "{count} membros": "{count} membros",
+  "Mencionar membro": "Mencionar membro",
+  "Membro excluído: {name}": "Membro excluído: {name}",
+  'Informe uma lista JSON de textos. Exemplo: ["--porta", "3000"] ou [].':
+    'Informe uma lista JSON de textos. Exemplo: ["--porta", "3000"] ou [].',
+  "O comando MCP “{command}” não foi encontrado. Confira a instalação e o PATH na máquina deste bot.":
+    "O comando MCP “{command}” não foi encontrado. Confira a instalação e o PATH na máquina deste bot.",
+  "Use de 1 a 64 letras sem acentos, números, _ ou -, começando por uma letra. O nome touri é reservado.":
+    "Use de 1 a 64 letras sem acentos, números, _ ou -, começando por uma letra. O nome touri é reservado.",
+  "do projeto": "do projeto",
+  "Listar processos": "Listar processos",
+  "Consultar os processos do projeto e seus estados": "Consultar os processos do projeto e seus estados",
+  "Definir processo": "Definir processo",
+  "Definir o processo {name}{command}": "Definir o processo {name}{command}",
+  "Iniciar processo": "Iniciar processo",
+  "Iniciar o processo {name}": "Iniciar o processo {name}",
+  "Parar processo": "Parar processo",
+  "Parar o processo {name}": "Parar o processo {name}",
+  "Reiniciar processo": "Reiniciar processo",
+  "Reiniciar o processo {name}": "Reiniciar o processo {name}",
+  "Ler logs": "Ler logs",
+  "Consultar os logs do processo {name}": "Consultar os logs do processo {name}",
+  "Abrir prévia": "Abrir prévia",
+  "Abrir a prévia do projeto em {path}": "Abrir a prévia do projeto em {path}",
   "Pasta permitida (caminho absoluto)": "Pasta permitida (caminho absoluto)",
   "Informe pelo menos uma pasta com caminho absoluto antes de conectar.":
     "Informe pelo menos uma pasta com caminho absoluto antes de conectar.",
