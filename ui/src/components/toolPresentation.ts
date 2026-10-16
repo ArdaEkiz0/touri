@@ -89,7 +89,10 @@ const setupPresentation = (name: string, input: Record<string, unknown> | null) 
   let summary: string
   if (leaf === "project_link") {
     title = t("Vincular projeto")
-    summary = t("Vincular {name} ({path}) a este bot", { name: String(input?.name ?? input?.projectId ?? ""), path })
+    summary = t("Vincular {name} ({path}) a este bot", {
+      name: String(input?.name ?? path.split("/").filter(Boolean).at(-1) ?? input?.projectId ?? t("Projeto")),
+      path,
+    })
     const previous = asToolRecord(input?.previousProject)
     if (previous)
       summary += ` ${t("Substitui o projeto {name} ({path}).", { name: String(previous.name), path: String(previous.path) })}`
@@ -241,5 +244,12 @@ export const approvalMatchesTool = (approval: ApprovalPart, part: ToolPart): boo
   if (toolLeaf(name) !== toolLeaf(part.tool)) return false
   const mcpServer = /^mcp__(.+?)__/.exec(part.tool)?.[1]
   if (approval.scope?.server && mcpServer && approval.scope.server !== mcpServer) return false
+  // Setup approvals enrich the original target with the reviewed project name,
+  // canonical path and timing. Compare its target rather than that extra metadata.
+  if (approval.scope?.server === "touri" && mcpServer === "touri" && toolLeaf(name) === "project_link") {
+    const original = asToolRecord(parseToolValue(part.inputJson))
+    if (typeof original?.projectId === "string") return original.projectId === args?.projectId
+    if (typeof original?.path === "string") return original.path === args?.path
+  }
   return canonicalValue(input) === canonicalValue(parseToolValue(part.inputJson))
 }

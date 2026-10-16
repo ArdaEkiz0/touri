@@ -212,7 +212,10 @@ test("projectId and registered paths reuse a project and unlink is visible witho
   expect(f.events).toContainEqual(
     expect.objectContaining({
       type: "message.created",
-      message: expect.objectContaining({ kind: "notice", text: "Projeto Hodler desvinculado deste bot." }),
+      message: expect.objectContaining({
+        kind: "notice",
+        text: "Projeto Hodler desvinculado deste bot. A configuração foi salva neste Mac e será aplicada no próximo turno local.",
+      }),
     }),
   )
 })
@@ -238,7 +241,9 @@ for (const [mode, access] of [
     expect(f.events).toContainEqual(
       expect.objectContaining({
         type: "message.created",
-        message: expect.objectContaining({ text: `Acesso à pasta ${f.path} removido deste bot.` }),
+        message: expect.objectContaining({
+          text: `Acesso à pasta ${f.path} removido deste bot. A configuração foi salva neste Mac e será aplicada no próximo turno local.`,
+        }),
       }),
     )
   })
@@ -323,6 +328,35 @@ test("configuration edits or filesystem retargeting while a card is pending inva
   expect((await link).success).toBe(false)
   expect(f.store.listProjects()).toEqual([])
   expect(f.currentBot()?.folders).toEqual([])
+})
+
+test("local setup reports the host and next local turn for project and folder changes", async () => {
+  const f = await fixture()
+  for (const [name, args] of [
+    ["project_link", { path: f.path }],
+    ["folder_access_request", { path: f.path, mode: "read-write" }],
+  ] as const) {
+    const call = f.call(name, args)
+    expect((await f.pending()).detail).toContain('"nextTurn":false')
+    expect((await f.answer("allow")).status).toBe(200)
+    const result = await call
+    expect(result).toMatchObject({
+      success: true,
+      structured: { effective: "next-turn" },
+      content: [{ type: "text", text: expect.stringContaining("próximo turno local") }],
+    })
+    expect(JSON.stringify(result)).not.toContain("VM")
+    expect(JSON.stringify(result)).toContain("neste Mac")
+  }
+  for (const [name, args] of [
+    ["project_unlink", {}],
+    ["folder_access_remove", { path: f.path }],
+  ] as const) {
+    const result = await f.call(name, args)
+    expect(result.success).toBe(true)
+    expect(JSON.stringify(result)).toContain("próximo turno local")
+    expect(JSON.stringify(result)).not.toContain("VM")
+  }
 })
 
 test("VM setup is saved for next turn without invoking any VM runtime", async () => {
