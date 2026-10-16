@@ -2,6 +2,12 @@ import { userFacingError } from "./errors"
 /** All UI copy lives here. pt-BR is the default; English is available for a future locale picker. */
 export type Locale = "pt-BR" | "en"
 export const ptBR = {
+  "Pasta permitida (caminho absoluto)": "Pasta permitida (caminho absoluto)",
+  "Informe pelo menos uma pasta com caminho absoluto antes de conectar.":
+    "Informe pelo menos uma pasta com caminho absoluto antes de conectar.",
+  "Ações das configurações do bot": "Ações das configurações do bot",
+  "Requer Node.js. Ao usar esta configuração, informe o caminho absoluto de uma pasta permitida no campo abaixo. Não requer login ou token.":
+    "Requer Node.js. Ao usar esta configuração, informe o caminho absoluto de uma pasta permitida no campo abaixo. Não requer login ou token.",
   "Vincular projeto": "Vincular projeto",
   "Vincular {name} ({path}) a este bot": "Vincular {name} ({path}) a este bot",
   "Substitui o projeto {name} ({path}).": "Substitui o projeto {name} ({path}).",
@@ -762,6 +768,12 @@ export const ptBR = {
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Pasta permitida (caminho absoluto)": "Allowed folder (absolute path)",
+  "Informe pelo menos uma pasta com caminho absoluto antes de conectar.":
+    "Enter at least one folder with an absolute path before connecting.",
+  "Ações das configurações do bot": "Bot settings actions",
+  "Requer Node.js. Ao usar esta configuração, informe o caminho absoluto de uma pasta permitida no campo abaixo. Não requer login ou token.":
+    "Requires Node.js. When using this preset, enter the absolute path of an allowed folder in the field below. No login or token required.",
   "Vincular projeto": "Link project",
   "Vincular {name} ({path}) a este bot": "Link {name} ({path}) to this bot",
   "Substitui o projeto {name} ({path}).": "Replaces project {name} ({path}).",

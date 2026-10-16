@@ -56,7 +56,12 @@ export const createSetupTools = ({
     if (!configure) return denied("A configuração do bot está indisponível.")
     const result = configure({ botId: bot.id, patch })
     if (!result.success) return result
-    const message = bot.machine === "vm" ? `${text} A mudança entra em vigor no próximo turno da VM.` : text
+    const message =
+      bot.machine === "vm"
+        ? `${text} A mudança entra em vigor no próximo turno da VM.`
+        : bot.machine === "local"
+          ? `${text} A configuração foi salva neste Mac e será aplicada no próximo turno local.`
+          : text
     return {
       success: true as const,
       content: [{ type: "text" as const, text: message }],
