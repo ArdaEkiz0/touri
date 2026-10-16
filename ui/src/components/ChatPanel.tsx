@@ -29,15 +29,17 @@ import { Composer } from "./Composer"
 import { ConversationStart } from "./ConversationStart"
 import { EvidenceContext } from "./EvidenceGallery"
 import { FailureActionContext } from "./FailureActionContext"
-import { GroupHeader } from "./Groups"
+import { GroupConversationStart, GroupHeader } from "./Groups"
 import { MachineServiceButton } from "./MachineServiceButton"
 import { MachineStatus } from "./MachineStatus"
 import { MarkdownContent } from "./MarkdownContent"
+import { MessageAttachments } from "./MessageAttachments"
 import { useInsertedIds } from "./Motion"
 import { mascotSignalFor } from "./mascotState"
 import { ToolCallList } from "./ToolCallList"
 import { ToolText } from "./ToolOutput"
 import { toolStatus } from "./toolPresentation"
+import { type EditMessage, UserMessageEdit } from "./UserMessageEdit"
 
 type ChatPanelProps = {
   group?: BotGroup | null
@@ -79,6 +81,8 @@ type VirtualMessageListProps = {
   runs?: Array<Run>
   onSwitchBranch: (message: Message, siblings: Array<Message>, index: number) => void
   onRetry: (runId: Id) => Promise<void>
+  onEdit?: EditMessage | undefined
+  editDisabled?: boolean
   header?: ReactNode
   allMessages?: Array<Message>
   timelineCards?: Array<{ id: string; createdAt: number; content: ReactNode }>
@@ -124,6 +128,8 @@ export const VirtualMessageList = ({
   allMessages = messages,
   onSwitchBranch,
   onRetry,
+  onEdit,
+  editDisabled = false,
   header,
   timelineCards = [],
 }: VirtualMessageListProps) => {
@@ -323,6 +329,7 @@ export const VirtualMessageList = ({
                   : saved
               const siblings = allMessages.filter(
                 (candidate) =>
+                  candidate.threadId === message.threadId &&
                   candidate.parentId === message.parentId &&
                   candidate.role === message.role &&
                   candidate.kind !== "notice",
@@ -362,6 +369,8 @@ export const VirtualMessageList = ({
                     branchIndex={branchIndex}
                     onSwitchBranch={onSwitchBranch}
                     onRetry={onRetry}
+                    onEdit={onEdit}
+                    editDisabled={editDisabled}
                   />
                 </Fragment>
               )
@@ -446,6 +455,8 @@ const MessageBubble = ({
   branchIndex,
   onSwitchBranch,
   onRetry,
+  onEdit,
+  editDisabled,
 }: {
   inserted: boolean
   vmBotId?: string | undefined
@@ -458,6 +469,8 @@ const MessageBubble = ({
   branchIndex: number
   onSwitchBranch: (message: Message, siblings: Array<Message>, index: number) => void
   onRetry: (runId: Id) => Promise<void>
+  onEdit?: EditMessage | undefined
+  editDisabled: boolean
 }) => {
   const runtimeState = useMessageMascotState(message, run)
   const threadBot = useThreadBot(message.threadId)
@@ -585,6 +598,14 @@ const MessageBubble = ({
             evidence={message.role === "assistant" ? evidence : undefined}
           />
         ))}
+      <MessageAttachments parts={parts.filter((part) => part.type === "image" || part.type === "file")} api={api} />
+      {message.role === "user" && onEdit && (
+        <UserMessageEdit
+          message={message}
+          onEdit={onEdit}
+          disabled={editDisabled || message.delivery?.status === "queued" || message.delivery?.status === "sent"}
+        />
+      )}
       <ToolCallList
         parts={parts}
         api={api}
@@ -745,7 +766,7 @@ export const ChatPanel = ({
     )
 
   const visibleMessages = group
-    ? messages.filter((m) => m.threadId === thread.id)
+    ? messages.filter((message) => message.threadId === thread.id)
     : activeMessagePath(
         messages.filter((message) => message.threadId === thread.id),
         thread.activeLeafId,
@@ -788,7 +809,13 @@ export const ChatPanel = ({
   return (
     <section className="chat-panel">
       {group ? (
-        <GroupHeader group={group} bots={groupMembers} onEdit={onEditGroup} />
+        <GroupHeader
+          group={group}
+          bots={groupMembers}
+          onEdit={onEditGroup}
+          panelOpen={panelOpen}
+          onTogglePanel={onTogglePanel}
+        />
       ) : (
         <header className="chat-header" data-tauri-drag-region>
           <span className="chat-header-crumb">Bots / {bot?.name ?? "touri"}</span>
@@ -884,15 +911,21 @@ export const ChatPanel = ({
             if (next) void onSwitchBranch(thread.id, next.id)
           }}
           onRetry={onRetry}
+          onEdit={onSend}
+          editDisabled={Boolean(activeRun)}
           header={
             visibleMessages.length === 0 && !activeRun && visibleRuns.length === 0 ? (
-              <ConversationStart
-                bot={bot}
-                onChoose={(prompt) => {
-                  setDraft(prompt)
-                  composerRef.current?.focus()
-                }}
-              />
+              group ? (
+                <GroupConversationStart group={group} bots={groupMembers} />
+              ) : (
+                <ConversationStart
+                  bot={bot}
+                  onChoose={(prompt) => {
+                    setDraft(prompt)
+                    composerRef.current?.focus()
+                  }}
+                />
+              )
             ) : null
           }
           timelineCards={[

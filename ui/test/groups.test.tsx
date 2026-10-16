@@ -5,6 +5,34 @@ import App from "../src/App"
 import { createMockApi } from "../src/api/mock"
 
 describe("Grupos", () => {
+  it("introduces every member and group routing without showing the first bot's settings", async () => {
+    const api = createMockApi()
+    await api.request("POST /groups", {
+      name: "Equipe QA",
+      color: "#dc2626",
+      avatarShape: "cercle",
+      memberIds: ["bot-mark", "bot-onb"],
+      coordinatorBotId: null,
+    })
+    render(<App kernel={{ services: { api } }} />)
+    await screen.findByRole("textbox", { name: "Mensagem para mark" })
+    fireEvent.click(within(screen.getByRole("region", { name: "Grupos" })).getByRole("button", { name: "Equipe QA" }))
+    await screen.findByRole("textbox", { name: "Mensagem para Equipe QA" })
+    const welcome = screen.getByRole("region", { name: "Comece uma conversa com Equipe QA" })
+    expect(within(welcome).getByRole("heading", { name: "Comece uma conversa com Equipe QA" })).toBeVisible()
+    expect(within(welcome).getByText(/todos os membros respondem na ordem da lista/)).toBeVisible()
+    expect(within(welcome).getByRole("list", { name: "Membros do grupo" })).toHaveTextContent("mark")
+    expect(within(welcome).getByRole("list", { name: "Membros do grupo" })).toHaveTextContent("onb")
+    expect(screen.queryByRole("heading", { name: "Comece uma conversa com mark" })).toBeNull()
+    const panel = screen.getByRole("complementary", { name: "Painel do grupo Equipe QA" })
+    expect(within(panel).getByText("Seu grupo")).toBeVisible()
+    expect(within(panel).queryByRole("button", { name: "Permissões" })).toBeNull()
+    expect(screen.queryByRole("complementary", { name: "Painel de mark" })).toBeNull()
+    fireEvent.click(within(panel).getByRole("button", { name: "Fechar painel do grupo" }))
+    fireEvent.click(screen.getByRole("button", { name: "Painel do grupo" }))
+    expect(screen.getByRole("complementary", { name: "Painel do grupo Equipe QA" })).toBeVisible()
+  })
+
   it("creates a group, completes @mentions with keyboard, edits membership and opens own conversations", async () => {
     const api = createMockApi()
     render(<App kernel={{ services: { api } }} />)
@@ -74,6 +102,11 @@ describe("Grupos", () => {
     const row = document.querySelector('[data-message-id="group-reply"]')
     expect(row?.querySelector(".message-role")?.textContent).toBe("onb")
     expect(row?.querySelector(".tb-avatar")).toBeTruthy()
+    const groupPanel = screen.getByRole("complementary", { name: "Painel do grupo Equipe" })
+    expect(within(groupPanel).getByText(/mark coordena as respostas/)).toBeVisible()
+    expect(within(groupPanel).getByText("Coordenador")).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: /^mark .*$/ }))
+    await screen.findByRole("textbox", { name: "Mensagem para mark" })
     if (!screen.queryByRole("complementary", { name: "Painel de mark" }))
       fireEvent.click(screen.getByRole("button", { name: "Painel do bot" }))
     const panel = screen.getByRole("complementary", { name: "Painel de mark" })
