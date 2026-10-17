@@ -47,6 +47,7 @@ export const localFolderProfile = (
     env.TOURI_MCP_SOCK ?? resolveMcpSocketPath({ ...kernel.paths, runDir }),
     join(runDir, "mcp-tokens", args.thread.id),
     join(runDir, "mcp-shims"),
+    ...[env.TMPDIR, env.TMP, env.TEMP].filter((path): path is string => !!path),
     ...["mcp.json", "system.md", "settings.json"].map((suffix) =>
       join(runDir, "claude", `${args.thread.id}.${suffix}`),
     ),
