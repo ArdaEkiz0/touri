@@ -39,6 +39,8 @@ export const writePrivateFile = ({ root, path, content }: { root: string; path: 
 
 const findOnPath = ({ command, env }: { command: string; env: Record<string, string> }): string | null => {
   const pathValue = withToolPath(env).PATH ?? ""
+  // Windows PATH uses ";" between drive-letter paths, and executables carry a PATHEXT extension (.exe, .cmd).
+  if (process.platform === "win32") return Bun.which(command, { PATH: pathValue })
   for (const directory of pathValue.split(":")) {
     if (!directory) continue
     const candidate = join(directory, command)
