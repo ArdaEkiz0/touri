@@ -1,5 +1,5 @@
 import type { Bot, BotGroup, Id, MachineState, Message, Routine, RoutineRun, Run, Thread } from "@touri/contracts"
-import { Fragment, type ReactNode, useContext, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Fragment, type ReactNode, useContext, useId, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import type { ApprovalFocus } from "../approvalNavigation"
 import { userFacingRunError } from "../errors"
@@ -488,7 +488,9 @@ const MessageBubble = ({
     !parts.some((part) => part.type === "approval" && part.decision === "pending")
       ? mascotSignalFor({ botId: run?.botId ?? "", runs: run ? [run] : [], messages: [{ ...message, parts }] }).state
       : runtimeState
-  const reasoning = message.parts.filter((part) => part.type === "reasoning")
+  const reasoning = message.parts.filter((part) => part.type === "reasoning" && part.text.trim())
+  const reasoningId = useId()
+  const [reasoningExpanded, setReasoningExpanded] = useState(false)
   const text = messageMarkdown(message)
   const longContent =
     message.role === "assistant" &&
@@ -579,8 +581,17 @@ const MessageBubble = ({
         )}
       </div>
       {reasoning.length > 0 && (
-        <ChatDisclosure className="chat-reasoning" label="Raciocínio">
-          <MarkdownContent content={reasoning.map((part) => (part.type === "reasoning" ? part.text : "")).join("")} />
+        <ChatDisclosure
+          key={message.status === "streaming" ? "live" : "saved"}
+          id={reasoningId}
+          className="chat-reasoning"
+          label="Raciocínio"
+          expanded={message.status === "streaming" ? reasoningExpanded : undefined}
+          onExpandedChange={setReasoningExpanded}
+        >
+          <MarkdownContent
+            content={reasoning.map((part) => (part.type === "reasoning" ? part.text : "")).join("\n\n")}
+          />
         </ChatDisclosure>
       )}
       {text &&
@@ -622,6 +633,9 @@ const MessageBubble = ({
           bot={bot}
           threadId={message.threadId}
           parts={parts}
+          reasoningId={reasoningId}
+          reasoningExpanded={reasoningExpanded}
+          onExpandReasoning={() => setReasoningExpanded(true)}
           onFocusApproval={(approvalId) => {
             const card = Array.from(root.current?.querySelectorAll<HTMLElement>("[data-approval-id]") ?? []).find(
               (element) => element.dataset.approvalId === approvalId,

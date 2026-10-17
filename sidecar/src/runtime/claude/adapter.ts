@@ -198,6 +198,13 @@ export const createClaudeAdapter = ({
       args.onEvent({ type: "item", part })
     }
     let sawText = false
+    const thinkingBlocks = new Map<number, string>()
+    let estimatedThinkingTokens = 0
+    const emitThinking = (index: number, text: string): void => {
+      if (!text) return
+      thinkingBlocks.set(index, (thinkingBlocks.get(index) ?? "") + text)
+      args.onEvent({ type: "reasoning_delta", itemId: `thinking-${index}`, delta: text })
+    }
     let turnStarted = false
     let finish: (
       result:
@@ -262,6 +269,11 @@ export const createClaudeAdapter = ({
         const delta = asRecord(event.delta)
         const index = typeof event.index === "number" ? event.index : 0
         if (event.type === "content_block_start") {
+          const content = asRecord(event.content_block)
+          if (content?.type === "thinking") {
+            args.onEvent({ type: "reasoning_progress", estimatedTokens: estimatedThinkingTokens })
+            emitThinking(index, stringValue(content.thinking) ?? "")
+          }
           const part = partFromContent(event.content_block)
           if (part?.type === "tool_call") {
             streamedTools.set(index, { callId: part.callId, json: "" })
@@ -285,13 +297,29 @@ export const createClaudeAdapter = ({
             args.onEvent({ type: "text_delta", itemId: stringValue(frame.index) ?? "assistant", delta: text })
           }
         }
+        if (event.type === "content_block_delta" && delta?.type === "thinking_delta") {
+          // Print mode can hide thinking text while still streaming token estimates.
+          const tokens = delta.estimated_tokens
+          if (typeof tokens === "number" && Number.isFinite(tokens) && tokens > 0) {
+            estimatedThinkingTokens += tokens
+            args.onEvent({ type: "reasoning_progress", estimatedTokens: estimatedThinkingTokens })
+          }
+          emitThinking(index, stringValue(delta.thinking) ?? "")
+        }
       } else if (type === "assistant") {
         const message = asRecord(frame.message) ?? {}
         const content = Array.isArray(message.content) ? message.content : []
-        for (const item of content) {
+        for (const [index, item] of content.entries()) {
+          const block = asRecord(item)
+          if (block?.type === "thinking") {
+            const text = stringValue(block.thinking) ?? ""
+            const streamed = thinkingBlocks.get(index) ?? ""
+            if (text.startsWith(streamed)) emitThinking(index, text.slice(streamed.length))
+          }
           const part = partFromContent(item)
           if (part?.type === "tool_call") emitTool({ ...toolCalls.get(part.callId), ...part })
         }
+        thinkingBlocks.clear()
       } else if (type === "user") {
         const content = asRecord(frame.message)?.content
         for (const value of Array.isArray(content) ? content : []) {
