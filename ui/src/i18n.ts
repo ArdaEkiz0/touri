@@ -523,6 +523,7 @@ export const ptBR = {
   "Aguardando login no navegador…": "Aguardando login no navegador…",
   "Login disponível para este bot.": "Login disponível para este bot.",
   "Há um login disponível neste Mac.": "Há um login disponível neste Mac.",
+  "Há um login disponível neste servidor.": "Há um login disponível neste servidor.",
   "Login cancelado.": "Login cancelado.",
   "Não foi possível concluir o login. Tente novamente ou cole o token manualmente.":
     "Não foi possível concluir o login. Tente novamente ou cole o token manualmente.",
@@ -537,6 +538,7 @@ export const ptBR = {
     "Não foi possível abrir o navegador. Use o link de login.",
   "Cancelar login": "Cancelar login",
   "Usar login deste Mac": "Usar login deste Mac",
+  "Usar login deste servidor": "Usar login deste servidor",
   "Entrar no navegador": "Entrar no navegador",
   "Colar token manualmente": "Colar token manualmente",
   "Escolha a conta no OpenCode": "Escolha a conta no OpenCode",
@@ -1218,6 +1220,10 @@ export const ptBR = {
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Há um login disponível neste Mac.": "A login is available on this Mac.",
+  "Há um login disponível neste servidor.": "A login is available on this server.",
+  "Usar login deste Mac": "Use this Mac’s login",
+  "Usar login deste servidor": "Use this server’s login",
   "List registered projects and Git repositories discovered on this Mac. Read-only; no approval required. Use this before asking the user for a project path.":
     "List registered projects and Git repositories discovered on this Mac. Read-only; no approval required. Use this before asking the user for a project path.",
   "Informe o caminho absoluto de uma pasta deste Mac.": "Enter the absolute path of a folder on this Mac.",
