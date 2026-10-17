@@ -1855,6 +1855,18 @@ export const ptBR = {
   assistant: "Assistente",
   system: "Sistema",
   tool: "Ferramenta",
+  // Local folder confinement and recovery.
+  "Esta pasta fica no servidor.": "Esta pasta fica no servidor.",
+  "Esta pasta é protegida. Escolha outra pasta.": "Esta pasta é protegida. Escolha outra pasta.",
+  "Não foi possível acessar o login do bot com segurança. Entre novamente na conta nas configurações.":
+    "Não foi possível acessar o login do bot com segurança. Entre novamente na conta nas configurações.",
+  "Neste computador, adicione as pastas uma por uma. O acesso a todas as pastas não está disponível. Remova essa permissão nas configurações do bot para continuar com tarefas.":
+    "Neste computador, adicione as pastas uma por uma. O acesso a todas as pastas não está disponível. Remova essa permissão nas configurações do bot para continuar com tarefas.",
+  "Este computador não consegue proteger o acesso a pastas. Nenhuma permissão foi adicionada. Você pode continuar conversando ou enviar um arquivo.":
+    "Este computador não consegue proteger o acesso a pastas. Nenhuma permissão foi adicionada. Você pode continuar conversando ou enviar um arquivo.",
+  "As permissões de pastas salvas não funcionam neste computador. Você pode conversar sem ferramentas. Remova essas permissões nas configurações do bot para continuar com tarefas.":
+    "As permissões de pastas salvas não funcionam neste computador. Você pode conversar sem ferramentas. Remova essas permissões nas configurações do bot para continuar com tarefas.",
+  "Remover permissões antigas": "Remover permissões antigas",
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
@@ -3152,6 +3164,18 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   assistant: "Assistant",
   system: "System",
   tool: "Tool",
+  // Local folder confinement and recovery.
+  "Esta pasta fica no servidor.": "This folder is on the server.",
+  "Esta pasta é protegida. Escolha outra pasta.": "This folder is protected. Choose another folder.",
+  "Não foi possível acessar o login do bot com segurança. Entre novamente na conta nas configurações.":
+    "The bot's sign-in could not be accessed safely. Sign in again in settings.",
+  "Neste computador, adicione as pastas uma por uma. O acesso a todas as pastas não está disponível. Remova essa permissão nas configurações do bot para continuar com tarefas.":
+    "On this computer, add folders individually. Access to all folders is unavailable. Remove that permission in the bot settings to continue with tasks.",
+  "Este computador não consegue proteger o acesso a pastas. Nenhuma permissão foi adicionada. Você pode continuar conversando ou enviar um arquivo.":
+    "This computer cannot protect folder access. No permission was added. You can keep chatting or send a file.",
+  "As permissões de pastas salvas não funcionam neste computador. Você pode conversar sem ferramentas. Remova essas permissões nas configurações do bot para continuar com tarefas.":
+    "Saved folder permissions do not work on this computer. You can chat without tools. Remove these permissions in the bot settings to continue with tasks.",
+  "Remover permissões antigas": "Remove old permissions",
 }
 export const dictionaries = {
   "pt-BR": ptBR,

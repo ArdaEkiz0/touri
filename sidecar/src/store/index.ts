@@ -26,7 +26,7 @@ import type {
 import { normalizeBotName } from "@touri/contracts"
 import { validAvatarColor, validAvatarShape } from "@touri/contracts/avatar"
 import { installDoctor } from "../doctor"
-import { parseBotFolders } from "../kernel/bot-folders"
+import { parseBotFolders, protectedFolder } from "../kernel/bot-folders"
 import { DEFAULT_DATA_RETENTION_DAYS, validDataRetentionDays } from "../kernel/data-maintenance"
 import { SCHEMA_VERSION } from "../kernel/db"
 import {
@@ -37,6 +37,7 @@ import {
   MAX_ATTACHMENT_BYTES,
   readBoundedFile,
 } from "../kernel/files"
+import { folderGrantProblem, refreshHostFolderAccess, specificFoldersRequired } from "../kernel/folder-capability"
 import { historyThreadPending, hydrateHistoryEvent } from "../kernel/history-backfill"
 import { externalizeMessageParts, OUTPUT_BLOB_ORIGIN } from "../kernel/output-blobs"
 import { isProfileProvider, validProviderProfileName } from "../kernel/provider-profiles"
@@ -438,6 +439,7 @@ const writeSettings = ({ database, settings }: { database: Database; settings: A
 }
 
 export const init = async (kernel: Kernel): Promise<void> => {
+  await refreshHostFolderAccess()
   installDoctor(kernel)
   const database = kernel.db as Database
   const pendingDeltas = new Map<string, PendingDelta>()
@@ -866,10 +868,35 @@ export const init = async (kernel: Kernel): Promise<void> => {
     try {
       input.folders = body.folders === undefined ? (existing?.folders ?? []) : parseBotFolders(body.folders)
     } catch (error) {
-      return { input: null, error: error instanceof Error ? error.message : String(error) }
+      const message = error instanceof Error ? error.message : String(error)
+      return {
+        input: null,
+        error: message,
+        ...(message === specificFoldersRequired ? { errorCode: "FOLDER_SELECTION_REQUIRED" } : {}),
+        ...(message === protectedFolder ? { errorCode: "FOLDER_PROTECTED" } : {}),
+      }
     }
     if (input.machine === "cloud" && (input.anyFolderAccess || input.folders.length))
       return { input: null, error: "Pastas deste Mac não estão disponíveis na nuvem." }
+    // Narrowing/removing old grants and unrelated settings must remain possible
+    // even when this host has lost its confinement capability.
+    const expandsFolders =
+      (input.anyFolderAccess && !existing?.anyFolderAccess) ||
+      input.folders.some(
+        (folder) =>
+          !existing?.folders?.some(
+            (old) => old.path === folder.path && (old.access === "read-write" || old.access === folder.access),
+          ),
+      )
+    if (expandsFolders || (existing?.machine !== input.machine && input.machine === "local")) {
+      const problem = folderGrantProblem({ ...input, machine: input.machine ?? "local" })
+      if (problem)
+        return {
+          input: null,
+          errorCode: problem === specificFoldersRequired ? "FOLDER_SELECTION_REQUIRED" : "FOLDER_ACCESS_UNAVAILABLE",
+          error: problem,
+        }
+    }
     if (input.cwd !== undefined && input.cwd !== null && !isAbsolute(input.cwd))
       return { input: null, error: "cwd must be absolute" }
     if (
@@ -1269,6 +1296,7 @@ export const init = async (kernel: Kernel): Promise<void> => {
   const handleCreateBot = async ({ body }: { body: unknown }): Promise<RouteResponse> => {
     const record = requestRecord(body)
     if (!record) return errorResponse(400, "INVALID_ARGS", "Request body must be an object")
+    await refreshHostFolderAccess()
     const parsed = botFromBody({ body: record })
     if (!parsed.input || parsed.error)
       return errorResponse(400, parsed.errorCode ?? "INVALID_ARGS", parsed.error ?? "Invalid bot")
@@ -1324,6 +1352,7 @@ export const init = async (kernel: Kernel): Promise<void> => {
         method: "PATCH",
         path: "/bots/:id",
         handler: async ({ params, body }) => {
+          await refreshHostFolderAccess()
           const bot = getBot({ botId: params.id ?? "" })
           if (!bot) return errorResponse(404, "NOT_FOUND", "Bot not found")
           const record = requestRecord(body)
