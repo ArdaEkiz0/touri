@@ -31,10 +31,10 @@ afterEach(() => {
   for (const close of cleanups.splice(0)) close()
 })
 
-const fixture = async (patch: Partial<Bot> = {}) => {
+const fixture = async (patch: Partial<Bot> = {}, projectName = "Hodler") => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "touri-setup-")))
   const home = join(root, "home")
-  const path = join(home, "Hodler")
+  const path = join(home, projectName)
   mkdirSync(join(path, ".git"), { recursive: true })
   const runtime = createKernel({ appData: join(root, "app") })
   const db = runtime.kernel.db as Database
@@ -826,28 +826,33 @@ test("configuration edits or filesystem retargeting while a card is pending inva
   expect(f.currentBot()?.folders).toEqual([])
 })
 
-test("local setup reports the host and next message only when configuration changes", async () => {
-  for (const [name, args, remove, removeArgs] of [
-    ["project_link", { path: "target" }, "project_unlink", {}],
-    ["folder_access_request", { path: "target", mode: "read-write" }, "folder_access_remove", { path: "target" }],
-  ] as const) {
-    const f = await fixture()
-    const call = f.call(name, { ...args, path: f.path })
-    expect((await f.pending()).detail).toContain('"nextTurn":true')
-    expect((await f.pending()).detail).toContain('"machine":"local"')
-    expect((await f.answer("allow")).status).toBe(200)
-    const result = await call
-    expect(result).toMatchObject({
-      success: true,
-      structured: { effective: "next-turn" },
-      content: [{ type: "text", text: expect.stringContaining("próxima mensagem") }],
-    })
-    expect(JSON.stringify(result)).toContain("neste Mac")
-    const removed = await f.call(remove, "path" in removeArgs ? { path: f.path } : {})
-    expect(removed.success).toBe(true)
-    expect(JSON.stringify(removed)).toContain("próxima mensagem")
-  }
-})
+for (const projectName of ["Hodler", "VM-tools"])
+  test(`local setup reports the host and next message only when configuration changes: ${projectName}`, async () => {
+    for (const [name, args, remove, removeArgs] of [
+      ["project_link", { path: "target" }, "project_unlink", {}],
+      ["folder_access_request", { path: "target", mode: "read-write" }, "folder_access_remove", { path: "target" }],
+    ] as const) {
+      const f = await fixture({}, projectName)
+      const call = f.call(name, { ...args, path: f.path })
+      expect((await f.pending()).detail).toContain('"nextTurn":true')
+      expect((await f.pending()).detail).toContain('"machine":"local"')
+      expect((await f.answer("allow")).status).toBe(200)
+      const result = await call
+      expect(result).toMatchObject({
+        success: true,
+        structured: { effective: "next-turn" },
+        content: [{ type: "text", text: expect.stringContaining("próxima mensagem") }],
+      })
+      if (!result.success) throw new Error(result.error)
+      expect(result.structured).toHaveProperty("message", expect.not.stringContaining("próxima mensagem na VM"))
+      expect(JSON.stringify(result)).toContain("neste Mac")
+      const removed = await f.call(remove, "path" in removeArgs ? { path: f.path } : {})
+      expect(removed.success).toBe(true)
+      expect(JSON.stringify(removed)).toContain("próxima mensagem")
+      if (!removed.success) throw new Error(removed.error)
+      expect(removed.structured).toHaveProperty("message", expect.not.stringContaining("próxima mensagem na VM"))
+    }
+  })
 
 test("VM setup takes effect from the next message without invoking any VM runtime", async () => {
   const f = await fixture({ machine: "vm" })
