@@ -3,6 +3,13 @@ import { userFacingError } from "./errors"
 /** All UI copy lives here. pt-BR is the default; English is available for a future locale picker. */
 export type Locale = "pt-BR" | "en"
 export const ptBR = {
+  "Abrir resultado completo": "Abrir resultado completo",
+  "Carregando resultado…": "Carregando resultado…",
+  "Carregar mais saída": "Carregar mais saída",
+  "Esta imagem é grande demais para abrir aqui.": "Esta imagem é grande demais para abrir aqui.",
+  "Não foi possível abrir o resultado. Tente novamente.": "Não foi possível abrir o resultado. Tente novamente.",
+  "Intervalo de saída inválido": "Intervalo de saída inválido",
+  "Resultado não encontrado": "Resultado não encontrado",
   "pode ler e alterar arquivos em qualquer pasta que a conta do sistema permita.":
     "pode ler e alterar arquivos em qualquer pasta que a conta do sistema permita.",
   "O acesso total permite ler, criar, alterar e apagar arquivos em qualquer pasta que a conta do sistema permita. As pastas e exclusões salvas não limitam este acesso.":
@@ -1912,6 +1919,13 @@ export const ptBR = {
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Abrir resultado completo": "Open full result",
+  "Carregando resultado…": "Loading result…",
+  "Carregar mais saída": "Load more output",
+  "Esta imagem é grande demais para abrir aqui.": "This image is too large to open here.",
+  "Não foi possível abrir o resultado. Tente novamente.": "Could not open the result. Try again.",
+  "Intervalo de saída inválido": "Invalid output range",
+  "Resultado não encontrado": "Result not found",
   "pode ler e alterar arquivos em qualquer pasta que a conta do sistema permita.":
     "can read and change files in any folder the system account permits.",
   "O acesso total permite ler, criar, alterar e apagar arquivos em qualquer pasta que a conta do sistema permita. As pastas e exclusões salvas não limitam este acesso.":
