@@ -1180,6 +1180,7 @@ const AppContent = ({ kernel }: AppProps) => {
         <RoutineEditor
           initial={routineDraft}
           bots={data.bots}
+          groups={data.groups}
           host={data.routineHost}
           actions={actions}
           onClose={() => setRoutineDraft(null)}
