@@ -768,6 +768,7 @@ const AppContent = ({ kernel }: AppProps) => {
                             }))
                         }}
                         onOpenPermissions={() => openModal("bot-permissions")}
+                        onOpenToolCatalog={() => openModal("bot-mcp")}
                         onOpenProviderLogin={() => {
                           setSettingFocus(SETTINGS.providerLogin.id)
                           setBotSettingsSection(SETTINGS.providerLogin.section)

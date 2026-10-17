@@ -3,6 +3,11 @@ import { userFacingError } from "./errors"
 /** All UI copy lives here. pt-BR is the default; English is available for a future locale picker. */
 export type Locale = "pt-BR" | "en"
 export const ptBR = {
+  "Conectar dados": "Conectar dados",
+  "Escolha como disponibilizar os dados para este bot.": "Escolha como disponibilizar os dados para este bot.",
+  "Anexar arquivo/CSV": "Anexar arquivo/CSV",
+  "Dar acesso a uma pasta": "Dar acesso a uma pasta",
+  "Adicionar ferramenta do catálogo": "Adicionar ferramenta do catálogo",
   "Baixar arquivo": "Baixar arquivo",
   "Fechar arquivo": "Fechar arquivo",
   "Arquivos disponíveis quando a máquina estiver ligada.": "Arquivos disponíveis quando a máquina estiver ligada.",
@@ -1308,6 +1313,11 @@ export const ptBR = {
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Conectar dados": "Connect data",
+  "Escolha como disponibilizar os dados para este bot.": "Choose how to make the data available to this bot.",
+  "Anexar arquivo/CSV": "Attach a file/CSV",
+  "Dar acesso a uma pasta": "Grant folder access",
+  "Adicionar ferramenta do catálogo": "Add a tool from the catalog",
   "Baixar arquivo": "Download file",
   "Fechar arquivo": "Close file",
   "Arquivos disponíveis quando a máquina estiver ligada.": "Files are available when the machine is running.",
