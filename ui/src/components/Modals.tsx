@@ -26,6 +26,7 @@ import { DoctorChecks } from "../features/doctor/DoctorChecks"
 import { NOT_SURE_JOB_ID } from "../features/jobs/catalog"
 import { JobPicker } from "../features/jobs/JobPicker"
 import { accessLabel, plural, statusLabel, t } from "../i18n"
+import { hostComputerSupported } from "../platform"
 import { useHost } from "../useHost"
 import type { WorkspaceActions } from "../useWorkspace"
 import { type AvatarChoice, AvatarPicker } from "./AvatarPicker"
@@ -1328,27 +1329,29 @@ export const BotSettingsModal = ({
               )}
               {api && bot.machine === "vm" && <BotNetworkSettings api={api} botId={bot.id} />}
             </SettingsGroup>
-            <SettingsGroup title={t("Controle do computador")}>
-              <label className="toggle-row" htmlFor="settings-computer-use">
-                <span>
-                  <strong>{t("Computer use")}</strong>
-                  <small>
-                    {machine.machine === "vm" && !machine.hostComputerUse
-                      ? t("Controls only Xvfb in the VM; cannot access the host screen.")
-                      : t("Off by default; each turn still needs a time-boxed grant.")}
-                  </small>
-                </span>
-                <SettingsSwitch
-                  id="settings-computer-use"
-                  checked={bot.computerUse}
-                  disabled={updating || saving}
-                  onChange={(event) => {
-                    const computerUse = event.target.checked
-                    void immediateAction(() => actions.updateBot(bot.id, { computerUse }))
-                  }}
-                />
-              </label>
-            </SettingsGroup>
+            {(hostComputerSupported || machine.machine === "vm") && (
+              <SettingsGroup title={t("Controle do computador")}>
+                <label className="toggle-row" htmlFor="settings-computer-use">
+                  <span>
+                    <strong>{t("Computer use")}</strong>
+                    <small>
+                      {machine.machine === "vm" && !machine.hostComputerUse
+                        ? t("Controls only Xvfb in the VM; cannot access the host screen.")
+                        : t("Off by default; each turn still needs a time-boxed grant.")}
+                    </small>
+                  </span>
+                  <SettingsSwitch
+                    id="settings-computer-use"
+                    checked={bot.computerUse}
+                    disabled={updating || saving}
+                    onChange={(event) => {
+                      const computerUse = event.target.checked
+                      void immediateAction(() => actions.updateBot(bot.id, { computerUse }))
+                    }}
+                  />
+                </label>
+              </SettingsGroup>
+            )}
             <SettingsGroup>
               <label className="toggle-row" htmlFor="settings-browser">
                 <span>
@@ -1614,7 +1617,7 @@ export const BotSettingsModal = ({
           {saveError}
         </p>
       )}
-      {/* A plain group: WebKit drops flex <fieldset> children from the macOS accessibility tree. */}
+      {/* biome-ignore lint/a11y/useSemanticElements: WebKit drops flex fieldset children from the macOS accessibility tree. */}
       <div className="modal-actions" role="group" aria-label={t("Ações das configurações do bot")}>
         <button type="button" className="button button-quiet" onClick={onClose}>
           {t("Cancel")}
@@ -1648,7 +1651,7 @@ type ProcessEntry = { spec: ProcessSpec; run: import("@touri/contracts").Process
 const folderKey = (value: string): string =>
   `/${value
     .trim()
-    .split("/")
+    .split(/[\\/]/)
     .filter((segment) => segment && segment !== ".")
     .join("/")}`
 
