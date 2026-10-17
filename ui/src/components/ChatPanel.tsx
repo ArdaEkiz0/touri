@@ -3,20 +3,13 @@ import { failureRetryHint, sanitizeDiagnostic } from "@touri/contracts/run-failu
 import { Fragment, type ReactNode, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import type { ApprovalFocus } from "../approvalNavigation"
-import { useComposerDraft } from "../composerDraft"
 import { userFacingRunError } from "../errors"
 import { ComputerGrantCard } from "../features/computer"
 import { InlineLivePreview, InlinePreviewContext, screenTool } from "../features/desktop/InlineLivePreview"
 import { localizeNotice, t, threadTitle } from "../i18n"
 import { machineStateForDisplay } from "../machineState"
 import { messageMarkdown } from "../messageMarkdown"
-import {
-  consumeTaskResume,
-  consumeTaskReview,
-  requestTaskResume,
-  resumeTaskEvent,
-  reviewTaskEvent,
-} from "../recoveryEvents"
+import { consumeTaskReview, requestTaskResume, reviewTaskEvent } from "../recoveryEvents"
 import { type RoutineDraft, repeatTaskDraft, suggestedRoutineDraft } from "../routineDraft"
 import { failureTimeLabel, runErrorFor } from "../runError"
 import { ActivityMark } from "./ActivityMark"
@@ -25,9 +18,9 @@ import { useAvatarBot, useMascotSnapshot, useMessageMascotState, useThreadBot } 
 import { withApprovalAnswers } from "./activityStatus"
 import { BotAvatar } from "./BotAvatar"
 import { ChatDisclosure } from "./ChatDisclosure"
-import { Composer } from "./Composer"
 import { ConnectDataCard, connectDataMarker } from "./ConnectDataCard"
 import { ConversationStart } from "./ConversationStart"
+import { DraftComposer, type DraftComposerHandle } from "./DraftComposer"
 import { ErrorDetails, ErrorText } from "./ErrorDetails"
 import { ErrorNotice } from "./ErrorNotice"
 import { EvidenceContext } from "./EvidenceGallery"
@@ -856,26 +849,9 @@ export const ChatPanel = ({
   routineRuns = [],
 }: ChatPanelProps) => {
   const machine = machineStateForDisplay(rawMachine)
-  const { draft, setDraft, draftSaveFailed } = useComposerDraft(thread?.id)
   const mascotSnapshot = useMascotSnapshot({ id: bot?.id ?? "", color: bot?.color ?? null }, thread?.id)
   const composerRef = useRef<HTMLTextAreaElement>(null)
-  const recoveryThreadId = thread?.id
-  useEffect(() => {
-    const resume = () => {
-      if (!recoveryThreadId || !consumeTaskResume(recoveryThreadId)) return
-      setDraft(
-        (current) =>
-          current ||
-          t(
-            "Conferi as ações registradas. Quero continuar a tarefa a partir do estado atual, sem repetir ações já concluídas.",
-          ),
-      )
-      composerRef.current?.focus()
-    }
-    resume()
-    window.addEventListener(resumeTaskEvent, resume)
-    return () => window.removeEventListener(resumeTaskEvent, resume)
-  }, [recoveryThreadId, setDraft])
+  const draftComposerRef = useRef<DraftComposerHandle>(null)
   const localAttachmentButtonRef = useRef<HTMLButtonElement>(null)
   const attachmentButtonRef = sharedAttachmentButtonRef ?? localAttachmentButtonRef
   const activeRun = useMemo(
@@ -1083,7 +1059,7 @@ export const ChatPanel = ({
                   onFolder={onOpenPermissions}
                   onAttach={() => attachmentButtonRef.current?.click()}
                   onChoose={(prompt) => {
-                    setDraft(prompt)
+                    draftComposerRef.current?.setDraft(prompt)
                     composerRef.current?.focus()
                   }}
                 />
@@ -1174,11 +1150,9 @@ export const ChatPanel = ({
         />
       </InlinePreviewContext.Provider>
       {/* r8 composer: notices and the input island stay isolated from transcript activity. */}
-      {draftSaveFailed && (
-        <p role="alert">{t("Não foi possível salvar o rascunho. Copie sua mensagem antes de fechar o touri.")}</p>
-      )}
-      <Composer
+      <DraftComposer
         key={`composer-${thread.id}`}
+        draftRef={draftComposerRef}
         notice={{
           bot,
           latestReply,
@@ -1193,17 +1167,11 @@ export const ChatPanel = ({
         threadId={thread.id}
         parentId={thread.activeLeafId}
         api={api}
-        draft={draft}
-        onDraft={setDraft}
         inputRef={composerRef}
         attachmentButtonRef={attachmentButtonRef}
         activeRun={activeRun}
         queuedCount={visibleMessages.filter((message) => message.delivery?.status === "queued").length}
-        onSend={async (...args) => {
-          await onSend(...args)
-          // Sending may finish after navigation has unmounted this conversation's composer.
-          setDraft((current) => (current === draft ? "" : current))
-        }}
+        onSend={onSend}
         onCancel={onCancel}
         onOpenPermissions={group ? undefined : onOpenPermissions}
         onOpenProviderLogin={group ? undefined : onOpenProviderLogin}
