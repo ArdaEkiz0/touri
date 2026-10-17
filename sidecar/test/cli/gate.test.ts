@@ -200,6 +200,14 @@ test("static serving falls back to index.html for app routes, never for missing 
   expect(asset?.headers.get("cache-control")).toContain("immutable")
 })
 
+test("chat file reads require authentication and reach API routing rather than static assets", async () => {
+  const { call, pair } = makeGate()
+  const path = "/api/v1/bots/bot/files/content?path=%2Fworkspace%2Fnotes.md"
+  expect((await call({ path }))?.status).toBe(401)
+  const { cookie } = await pair()
+  expect(await call({ path, headers: { cookie } })).toBeNull()
+})
+
 test("serves the linked app favicon from directory and embedded UI assets", async () => {
   const { store, secrets, limiter, pair } = makeGate()
   const { cookie } = await pair()
