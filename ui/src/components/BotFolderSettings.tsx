@@ -1,6 +1,7 @@
 import type { Bot, BotFolder } from "@touri/contracts"
 import { useEffect, useState } from "react"
 import type { TauriInvoke, UiApi } from "../api/client"
+import { useIsServerMode } from "../features/server/serverMode"
 import { t } from "../i18n"
 import { FolderPicker } from "./FolderPicker"
 import { Modal } from "./Modal"
@@ -32,6 +33,7 @@ export const BotFolderSettings = ({
   onFolders: (folders: BotFolder[]) => void
   onAnyFolderAccess: (enabled: boolean) => void
 }) => {
+  const serverMode = useIsServerMode()
   const [confirming, setConfirming] = useState(false)
   const [picking, setPicking] = useState(false)
   const unrestricted = machine === "local" && fullAccess
@@ -56,6 +58,11 @@ export const BotFolderSettings = ({
       <strong>
         {unrestricted ? t("Pastas salvas para modos de acesso restrito") : t("Pastas que este bot pode acessar")}
       </strong>
+      {serverMode && (
+        <p className="field-help">
+          {t("As pastas abaixo pertencem ao servidor. Pastas deste Mac não são compartilhadas.")}
+        </p>
+      )}
       {unrestricted && (
         <p className="field-help">
           {t("Estas opções ficam salvas para modos de acesso restrito. Elas não limitam o acesso total atual.")}
@@ -148,7 +155,9 @@ export const BotFolderSettings = ({
           <label className="toggle-row" htmlFor="settings-any-folder">
             <span>
               <strong>
-                {unrestricted ? t("Acesso a qualquer pasta no modo restrito") : t("Acesso a qualquer pasta deste Mac")}
+                {unrestricted
+                  ? t("Acesso a qualquer pasta no modo restrito")
+                  : t(serverMode ? "Acesso a qualquer pasta do servidor" : "Acesso a qualquer pasta deste Mac")}
               </strong>
               <small>
                 {unrestricted
@@ -173,13 +182,15 @@ export const BotFolderSettings = ({
                 )}
               </p>
               <p className="field-help">
-                {machine === "vm"
-                  ? t(
-                      "Na VM, sua pasta pessoal aparece em /host/home; as demais, em /host/<nome>. As exclusões são ocultadas por montagens somente leitura.",
-                    )
-                  : t(
-                      "No Mac, o sandbox do macOS bloqueia as exclusões e a escrita nas pastas somente leitura, inclusive em comandos de terminal. As alterações valem a partir da próxima mensagem.",
-                    )}
+                {serverMode
+                  ? t("As permissões e o isolamento são aplicados pelo servidor. Revise o acesso antes de salvar.")
+                  : machine === "vm"
+                    ? t(
+                        "Na VM, sua pasta pessoal aparece em /host/home; as demais, em /host/<nome>. As exclusões são ocultadas por montagens somente leitura.",
+                      )
+                    : t(
+                        "No Mac, o sandbox do macOS bloqueia as exclusões e a escrita nas pastas somente leitura, inclusive em comandos de terminal. As alterações valem a partir da próxima mensagem.",
+                      )}
               </p>
             </>
           )}
@@ -197,9 +208,13 @@ export const BotFolderSettings = ({
           <p>
             {unrestricted
               ? t("Esta opção fica salva para modos de acesso restrito. O acesso total atual não muda.")
-              : t(
-                  "Este bot poderá ler arquivos pessoais de todo o Mac e, conforme o nível de acesso, alterá-los ou apagá-los. Na VM, sua pasta pessoal será montada em /host/home. Conceda este acesso apenas a bots em que confia.",
-                )}
+              : serverMode
+                ? t(
+                    "Este bot poderá ler arquivos de todo o servidor e, conforme o nível de acesso, alterá-los ou apagá-los. Conceda este acesso apenas a bots em que confia.",
+                  )
+                : t(
+                    "Este bot poderá ler arquivos pessoais de todo o Mac e, conforme o nível de acesso, alterá-los ou apagá-los. Na VM, sua pasta pessoal será montada em /host/home. Conceda este acesso apenas a bots em que confia.",
+                  )}
           </p>
           {!unrestricted && (
             <p>{t("As exclusões de pastas sensíveis, o nível de acesso e as aprovações continuam valendo.")}</p>

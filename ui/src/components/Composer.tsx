@@ -5,6 +5,7 @@ import { attachmentAccept, maxAttachmentBytes } from "../attachmentFiles"
 import { composerKeyAction } from "../composerKeys"
 import { userFacingError } from "../errors"
 import { useCloudAccount } from "../features/cloud/useCloudAccount"
+import { useIsServerMode } from "../features/server/serverMode"
 import { dropRejectionMessage, type FileDrop, listenForFileDrops } from "../fileDrops"
 import { t } from "../i18n"
 import { useComposerMachineIntent } from "../machineIntents"
@@ -97,6 +98,7 @@ export const Composer = ({
   onCancel,
   notice,
 }: ComposerProps) => {
+  const serverMode = useIsServerMode()
   const login = useProviderLogin(api, bot?.id ?? "", bot?.provider ?? "codex", !!bot && bot.machine !== "cloud", false)
   const { account: cloudAccount } = useCloudAccount(api, bot?.machine === "cloud")
   const cloudUnavailable = bot?.machine === "cloud" && cloudAccount?.runtimeAvailable !== true
@@ -214,12 +216,12 @@ export const Composer = ({
   const attachGrantedRef = useRef(attachGranted)
   attachGrantedRef.current = attachGranted
   useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) return
+    if (serverMode || !("__TAURI_INTERNALS__" in window)) return
     return listenForFileDrops({
       onActive: setDragging,
       onDrop: (drop) => void attachGrantedRef.current(drop),
     })
-  }, [])
+  }, [serverMode])
   const addBrowserFiles = async (selected: FileList | null) => {
     if (!selected?.length) return
     const upload = api.uploadAttachment
@@ -348,7 +350,7 @@ export const Composer = ({
       onDrop={(event) => {
         event.preventDefault()
         setDragging(false)
-        if (!("__TAURI_INTERNALS__" in window)) addBrowserFiles(event.dataTransfer.files)
+        if (serverMode || !("__TAURI_INTERNALS__" in window)) addBrowserFiles(event.dataTransfer.files)
       }}
     >
       {dragging && (

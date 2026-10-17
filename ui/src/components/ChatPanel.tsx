@@ -17,6 +17,7 @@ import type { ApprovalFocus } from "../approvalNavigation"
 import { userFacingRunError } from "../errors"
 import { ComputerGrantCard } from "../features/computer"
 import { InlineLivePreview, InlinePreviewContext, screenTool } from "../features/desktop/InlineLivePreview"
+import { useIsServerMode } from "../features/server/serverMode"
 import { localizeNotice, t, threadTitle } from "../i18n"
 import { machineStateForDisplay } from "../machineState"
 import { messageMarkdown } from "../messageMarkdown"
@@ -867,6 +868,7 @@ export const ChatPanel = ({
   routines = [],
   routineRuns = [],
 }: ChatPanelProps) => {
+  const serverMode = useIsServerMode()
   const machine = machineStateForDisplay(rawMachine)
   const mascotSnapshot = useMascotSnapshot({ id: bot?.id ?? "", color: bot?.color ?? null }, thread?.id)
   const composerRef = useRef<HTMLTextAreaElement>(null)
@@ -900,7 +902,11 @@ export const ChatPanel = ({
           <div className="chat-bot-chip">
             {bot && <BotAvatar bot={bot} size={18} />}
             <h1 className="chat-page-heading">{bot?.name ?? "touri"}</h1>
-            {bot?.anyFolderAccess && <span className="any-folder-badge">{t("Qualquer pasta do Mac")}</span>}
+            {bot?.anyFolderAccess && (
+              <span className="any-folder-badge">
+                {t(serverMode ? "Qualquer pasta do servidor" : "Qualquer pasta do Mac")}
+              </span>
+            )}
           </div>
           <div className="chat-toolbar">
             {onTogglePanel && (
@@ -1002,7 +1008,11 @@ export const ChatPanel = ({
               <img src="/touri-bull.png" alt="" />
             )}
             <h1 className="chat-page-heading">{bot?.name ?? "touri"}</h1>
-            {bot?.anyFolderAccess && <span className="any-folder-badge">{t("Qualquer pasta do Mac")}</span>}
+            {bot?.anyFolderAccess && (
+              <span className="any-folder-badge">
+                {t(serverMode ? "Qualquer pasta do servidor" : "Qualquer pasta do Mac")}
+              </span>
+            )}
           </div>
           <div className="chat-toolbar">
             {onTogglePanel && (
@@ -1110,7 +1120,7 @@ export const ChatPanel = ({
                     createdAt: connectDataReply.createdAt + 1,
                     content: (
                       <ConnectDataCard
-                        desktop={"__TAURI_INTERNALS__" in window}
+                        desktop={!serverMode && "__TAURI_INTERNALS__" in window}
                         onAttach={() => attachmentButtonRef.current?.click()}
                         onFolder={bot?.machine === "cloud" ? undefined : onOpenPermissions}
                         onCatalog={onOpenToolCatalog}

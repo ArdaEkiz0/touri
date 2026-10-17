@@ -1,6 +1,6 @@
 import { defineConfig } from "@playwright/test"
 
-const port = Number(process.env.TOURI_E2E_PORT ?? 1420)
+const port = Number(process.env.TOURI_E2E_PORT ?? 14278)
 const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${port}`
 
 export default defineConfig({
@@ -11,7 +11,7 @@ export default defineConfig({
     ? { grep: new RegExp(process.env.TOURI_E2E_GREP ?? "chat activity:|mermaid", "i") }
     : {}),
   use: {
-    channel: process.env.TOURI_E2E_CHANNEL ?? "chrome",
+    ...(process.env.TOURI_E2E_CHANNEL ? { channel: process.env.TOURI_E2E_CHANNEL } : {}),
     headless: true,
     baseURL,
     trace: { mode: "retain-on-failure", screenshots: false },
@@ -20,9 +20,9 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: `VITE_ENABLE_MOCK=true bun run dev -- --host 127.0.0.1 --port ${port}`,
+          command: `VITE_ENABLE_MOCK=true bun run dev -- --host 127.0.0.1 --port ${port} --strictPort`,
           url: baseURL,
-          reuseExistingServer: !process.env.TOURI_E2E_PORT,
+          reuseExistingServer: false,
           timeout: 30_000,
         },
       }),

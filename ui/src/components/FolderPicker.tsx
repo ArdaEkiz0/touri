@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import type { TauriInvoke, UiApi } from "../api/client"
 import { userFacingError } from "../errors"
+import { useIsServerMode } from "../features/server/serverMode"
 import { t } from "../i18n"
 import { Modal } from "./Modal"
 import "./folder-picker.css"
@@ -24,6 +25,7 @@ export const FolderPicker = ({
   onSelect: (folder: BotFolder) => void | Promise<void>
   onClose: () => void
 }) => {
+  const serverMode = useIsServerMode()
   const [listing, setListing] = useState<FolderListing | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -83,7 +85,7 @@ export const FolderPicker = ({
       setBusy(false)
     }
   }
-  const desktop = "__TAURI_INTERNALS__" in window
+  const desktop = !serverMode && "__TAURI_INTERNALS__" in window
   const unavailable = requireAccess && listing && !listing.canGrant
   const crumbs = listing
     ? listing.path
@@ -196,7 +198,7 @@ export const FolderPicker = ({
             </button>
           </div>
         </details>
-        {invokeCommand && "__TAURI_INTERNALS__" in window && (
+        {invokeCommand && desktop && (
           <button
             type="button"
             className="button-quiet"

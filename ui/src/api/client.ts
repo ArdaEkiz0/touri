@@ -7,15 +7,17 @@ import {
   type RegisteredErrorCode,
   type Run,
   type SendMessageInput,
+  type ServerModeStatus,
   type TauriCommands,
   type UiEventEnvelope,
 } from "@touri/contracts"
 import { maxAttachmentBytes } from "../attachmentFiles"
 import { ApiError } from "../errors"
 import { t } from "../i18n"
+import { scopedStorageKey } from "../storageScope"
 import { createSendJournal } from "./sendJournal"
 
-export type Endpoint = { baseUrl: string; wsUrl: string; token: string }
+export type Endpoint = { baseUrl: string; wsUrl: string; token: string; scope?: string }
 
 /** In a plain browser the server authenticates with an httpOnly cookie, so no token is sent. */
 export const webEndpoint = (location: Pick<Location, "protocol" | "host">): Endpoint => ({
@@ -210,6 +212,12 @@ export const createApiClient = ({
   fetchImpl?: FetchLike
 }): UiApi => {
   let endpoint = initialEndpoint
+  const storageScope = scopedStorageKey("", initialEndpoint.scope ?? null)
+  const updateEndpoint = (next: Endpoint): void => {
+    // Token/port refreshes retain their journal. Switching destinations needs a new client.
+    if (scopedStorageKey("", next.scope ?? null) !== storageScope) throw new Error("SERVER_DESTINATION_CHANGED")
+    endpoint = next
+  }
   const listeners = new Set<(event: UiEventEnvelope) => void>()
   const connectionListeners = new Set<(connected: boolean) => void>()
   let socket: WebSocket | null = null
@@ -234,7 +242,7 @@ export const createApiClient = ({
     if (!resolveEndpoint) return
     recovering ??= resolveEndpoint()
       .then((next) => {
-        endpoint = next
+        updateEndpoint(next)
       })
       .finally(() => {
         recovering = null
@@ -347,6 +355,12 @@ export const createApiClient = ({
       next.addEventListener("close", disconnected)
       next.addEventListener("error", disconnected)
     } catch {
+      if (generation !== socketGeneration || listeners.size === 0) return
+      journal.disconnect()
+      disconnectedBefore = true
+      connectionListeners.forEach((listener) => {
+        listener(false)
+      })
       scheduleReconnect()
     } finally {
       connecting = false
@@ -415,6 +429,7 @@ export const createApiClient = ({
   const journal = createSendJournal({
     request,
     storage: localStorage,
+    scope: initialEndpoint.scope ?? null,
     emit: (event) =>
       listeners.forEach((listener) => {
         listener({ seq: 0, at: Date.now(), event })
@@ -469,9 +484,7 @@ export const createApiClient = ({
       }
       return ((await response.json()) as { attachment: Attachment }).attachment
     },
-    updateEndpoint: (next) => {
-      endpoint = next
-    },
+    updateEndpoint,
     sendMessage: journal.enqueue,
     pendingMessages: journal.messages,
     subscribe,
@@ -526,5 +539,20 @@ export const createWebInvoke = (): TauriInvoke => async (command, args) => webHa
 
 export const createTauriInvoke = (): TauriInvoke => async (command, args) => {
   if (!("__TAURI_INTERNALS__" in window)) return createWebInvoke()(command, args)
+  if (command === "secret_save") {
+    const mode = await invoke<ServerModeStatus>("server_mode_status", {})
+    if (mode.mode === "server") {
+      const endpoint = await invoke<Endpoint>("sidecar_endpoint", {})
+      if (!isEndpoint(endpoint)) throw new Error("SERVER_CONNECTION_FAILED")
+      const response = await fetch(`${endpoint.baseUrl}/api/v1/host/secret`, {
+        method: "POST",
+        headers: { ...authHeaders(endpoint.token), "Content-Type": "application/json" },
+        body: JSON.stringify(args),
+        signal: AbortSignal.timeout(30_000),
+      })
+      if (!response.ok) throw new Error("SERVER_CONNECTION_FAILED")
+      return {} as TauriCommands[typeof command]["result"]
+    }
+  }
   return invoke<TauriCommands[typeof command]["result"]>(command, args)
 }
