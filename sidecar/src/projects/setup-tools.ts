@@ -373,19 +373,20 @@ export const createSetupTools = ({
             { path, access },
           ])
           if (!authorized()) return denied("O acesso não foi aprovado ou a configuração mudou.")
-          const result = changed(
-            bot,
-            { folders },
-            `Acesso ${input.mode === "read" ? "de leitura" : "de leitura e escrita"} à pasta ${path} concedido a este bot.${target.missing ? ` Pasta ${target.path} criada.` : ""}`,
-            previousAccess !== access && (access === "read-write" || !previousAccess) ? ctx : undefined,
-          )
-          if (result.success && target.missing)
+          // Creation may fail even after consent. Keep the saved scope and
+          // continuation unchanged until the approved directory exists.
+          if (target.missing)
             createWorkspaceDirectory({
               root: target.ancestor,
               path: relative(target.ancestor, target.path),
               identity: target,
             })
-          return result
+          return changed(
+            bot,
+            { folders },
+            `Acesso ${input.mode === "read" ? "de leitura" : "de leitura e escrita"} à pasta ${path} concedido a este bot.${target.missing ? ` Pasta ${target.path} criada.` : ""}`,
+            previousAccess !== access && (access === "read-write" || !previousAccess) ? ctx : undefined,
+          )
         } catch (error) {
           return {
             success: false,

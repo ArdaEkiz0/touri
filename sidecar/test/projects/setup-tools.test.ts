@@ -622,6 +622,30 @@ test("global read-only mode and protected subtrees cannot be bypassed by creatin
   expect(f.cards).toEqual([])
 })
 
+test("failed missing-folder creation preserves grants and does not schedule continuation", async () => {
+  const f = await fixture()
+  const folders: Bot["folders"] = [{ path: f.home, access: "read-only" }]
+  expect((await f.request("PATCH", `/bots/${f.bot.id}`, { folders })).status).toBe(200)
+  let continuations = 0
+  f.runtime.kernel.services.provide("runtime.continueAfterApproval", () => {
+    continuations++
+    return true
+  })
+  const target = join(f.path, "images")
+  const call = f.call("folder_access_request", { path: target, mode: "read-write" })
+  await f.pending()
+  chmodSync(f.path, 0o500)
+  try {
+    expect((await f.answer("allow")).status).toBe(200)
+    expect((await call).success).toBe(false)
+    expect(existsSync(target)).toBe(false)
+    expect(f.currentBot()?.folders).toEqual(folders)
+    expect(continuations).toBe(0)
+  } finally {
+    chmodSync(f.path, 0o700)
+  }
+})
+
 test("schema forbids other bot IDs, any-folder access, invalid modes and ambiguous project targets", async () => {
   const f = await fixture()
   for (const [name, args] of [
