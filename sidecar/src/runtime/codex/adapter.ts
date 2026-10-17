@@ -482,6 +482,7 @@ export const createCodexAdapter = ({
       }
     }).catch(() => "")
     void (async () => {
+      let resuming = false
       try {
         await sendRequest("initialize", { clientInfo: { name: "touri", version: touriVersion } })
         const access = codexAccessParams(args)
@@ -521,7 +522,9 @@ export const createCodexAdapter = ({
               ephemeral: false,
               ...turnConfig,
             }
-        const sessionResponse = await sendRequest(args.session ? "thread/resume" : "thread/start", sessionRequest)
+        resuming = !!args.session
+        const sessionResponse = await sendRequest(resuming ? "thread/resume" : "thread/start", sessionRequest)
+        resuming = false
         const details = sessionDetails(sessionResponse.result)
         externalSessionId = details.id
         rolloutPath = details.rolloutPath
@@ -546,7 +549,9 @@ export const createCodexAdapter = ({
         complete({
           success: false,
           errorCode:
-            message.toLowerCase().includes("resume") || message.toLowerCase().includes("not found")
+            (resuming && classifyProviderError(message) !== "cli_auth") ||
+            message.toLowerCase().includes("resume") ||
+            message.toLowerCase().includes("not found")
               ? "cli_protocol"
               : classifyProviderError(message),
           error: message,

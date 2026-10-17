@@ -1,6 +1,7 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs"
 import { arch, homedir, platform } from "node:os"
 import { join } from "node:path"
+import { codexSessionsCheck } from "../doctor/codex-sessions"
 import { createAppPaths, resolveMcpSocketPath } from "../kernel/paths"
 import { createAppleContainerProvider } from "../vm"
 import type { CliCommand } from "./args"
@@ -62,6 +63,7 @@ export const collectDoctorChecks = async ({
   port: number
 }): Promise<Array<DoctorCheck>> => {
   const ui = resolveUiAssets({ uiDir: null })
+  const codexSessions = await codexSessionsCheck(homedir())
   const tools = await Promise.all([
     toolCheck("codex", ["--version"], false),
     toolCheck("claude", ["--version"], false),
@@ -93,6 +95,7 @@ export const collectDoctorChecks = async ({
     { name: "computer use", level: "warn", detail: computerUseDisabledReason },
     await portCheck(port),
     ...tools,
+    { name: codexSessions.id, level: "ok", detail: codexSessions.detail },
     ...(await createAppleContainerProvider().doctor()).map((check) => ({
       name: check.id,
       level: check.ok ? ("ok" as const) : ("warn" as const),
