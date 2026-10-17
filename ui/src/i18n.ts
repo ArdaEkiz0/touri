@@ -1161,6 +1161,8 @@ export const ptBR = {
   "Asks permission before changing files.": "Pede permissão antes de mudar arquivos.",
   "Sign in to an account to create your bot.": "Entre em uma conta para criar seu bot.",
   "Choose an account": "Escolha uma conta",
+  "Use another account": "Usar outra conta",
+  "Choose the account this bot will use.": "Escolha a conta que este bot vai usar.",
   "Sign in above before creating your bot.": "Entre em uma conta acima antes de criar seu bot.",
   "Could not check accounts. Choose an account and try again.":
     "Não foi possível verificar as contas. Escolha uma conta e tente novamente.",
@@ -3195,6 +3197,8 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Asks permission before changing files.": "Asks permission before changing files.",
   "Sign in to an account to create your bot.": "Sign in to an account to create your bot.",
   "Choose an account": "Choose an account",
+  "Use another account": "Use another account",
+  "Choose the account this bot will use.": "Choose the account this bot will use.",
   "Sign in above before creating your bot.": "Sign in above before creating your bot.",
   "Could not check accounts. Choose an account and try again.":
     "Could not check accounts. Choose an account and try again.",
