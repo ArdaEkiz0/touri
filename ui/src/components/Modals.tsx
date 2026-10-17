@@ -1161,7 +1161,7 @@ export const BotSettingsModal = ({
         <SettingsLayout
           sections={sections}
           active={section}
-          onChange={setSection}
+          onChange={(next) => (next === "routines" && onOpenRoutines ? onOpenRoutines() : setSection(next))}
           label={t("Seções das configurações do bot")}
         >
           <SettingsPane {...botPane("model")}>
