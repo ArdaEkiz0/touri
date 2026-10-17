@@ -478,6 +478,12 @@ fn spawn_sidecar<R: Runtime>(
         &format!("starting sidecar: {}", binary.display()),
     );
     let mut command = Command::new(binary);
+    // The sidecar is a console executable; without this flag Windows opens a terminal window beside the app.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(windows_sys::Win32::System::Threading::CREATE_NO_WINDOW);
+    }
     inherit_safe_environment(&mut command);
     #[cfg(windows)]
     command.env(
