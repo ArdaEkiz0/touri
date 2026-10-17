@@ -103,6 +103,22 @@ const mockEnabled = canUseMockAdapter({
 type ConnectionState = "loading" | "ready" | "error"
 
 const errorMessage = userFacingError
+const startupTimeoutMessage = (): string => t("The local service took too long to respond. Try connecting again.")
+const STARTUP_TIMEOUT_MS = 20_000
+
+const withStartupDeadline = async <T,>(operation: Promise<T>): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(startupTimeoutMessage())), STARTUP_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 const AppContent = ({ kernel }: AppProps) => {
   const serverState = useServerMode()
@@ -189,7 +205,9 @@ const AppContent = ({ kernel }: AppProps) => {
     let generation = 0
     const unlisten: Array<() => void> = []
     let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let startupTimer: ReturnType<typeof setTimeout> | undefined
     const fail = (reason: string): void => {
+      clearTimeout(startupTimer)
       setConnectionState("error")
       setConnectionError(serverMode ? serverModeError(reason) : reason)
       setConnectionErrorCode(serverModeErrorCode(reason))
@@ -203,6 +221,7 @@ const AppContent = ({ kernel }: AppProps) => {
           if (!active || attempt !== generation) return
           const scenario = new URLSearchParams(window.location.search).get("mockScenario")
           setApi(createMockApi({ scenario: scenario === "resumed-turn" ? scenario : null }))
+          clearTimeout(startupTimer)
           setConnectionState("ready")
           return
         }
@@ -214,6 +233,7 @@ const AppContent = ({ kernel }: AppProps) => {
             : endpoint
         }
         const endpoint = isTauriRuntime() ? await resolveEndpoint() : webEndpoint(window.location)
+        if (!active || attempt !== generation) return
         const existing = apiRef.current
         existing?.updateEndpoint?.(endpoint)
         const resolved = existing?.updateEndpoint
@@ -224,6 +244,7 @@ const AppContent = ({ kernel }: AppProps) => {
             })
         await resolved.request("GET /health", {})
         if (!active || attempt !== generation) return
+        clearTimeout(startupTimer)
         setApi(resolved)
         setConnectionState("ready")
         setConnectionError(null)
@@ -273,9 +294,16 @@ const AppContent = ({ kernel }: AppProps) => {
         if (active) fail(errorMessage(error))
       }
     }
+    startupTimer = setTimeout(() => {
+      if (!active) return
+      // A late endpoint/health response must not dismiss the recovery screen.
+      generation += 1
+      fail(startupTimeoutMessage())
+    }, STARTUP_TIMEOUT_MS)
     void start()
     return () => {
       active = false
+      clearTimeout(startupTimer)
       clearTimeout(retryTimer)
       unlisten.forEach((stop) => {
         stop()
@@ -591,8 +619,8 @@ const AppContent = ({ kernel }: AppProps) => {
     setConnectionError((current) => current ?? data.notice ?? t("The sidecar connection is not available."))
     setRetryingConnection(true)
     try {
-      if (isTauriRuntime() && serverState.error) await serverState.refresh()
-      if (isTauriRuntime() && !serverMode) await invokeCommand("sidecar_restart", {})
+      if (isTauriRuntime() && serverState.error) await withStartupDeadline(serverState.refresh())
+      if (isTauriRuntime() && !serverMode) await withStartupDeadline(invokeCommand("sidecar_restart", {}))
       setConnectionAttempt((attempt) => attempt + 1)
     } catch (error) {
       setConnectionState("error")
@@ -1201,9 +1229,11 @@ const SidecarErrorScreen = ({
       <p>
         {serverMode
           ? t("Servidor offline. Tentando reconectar…")
-          : reason.startsWith("schema mismatch:")
-            ? t("The app and the local service use incompatible versions.")
-            : t("Touri is unavailable until the local service reconnects.")}
+          : reason === startupTimeoutMessage() || reason.startsWith("sidecar handshake timed out")
+            ? startupTimeoutMessage()
+            : reason.startsWith("schema mismatch:")
+              ? t("The app and the local service use incompatible versions.")
+              : t("Touri is unavailable until the local service reconnects.")}
       </p>
       <div className="error-reason">
         <ErrorNotice error={reason} showActions={false} />
@@ -1217,7 +1247,7 @@ const SidecarErrorScreen = ({
           {t("Usar um servidor touri")}
         </button>
       )}
-      <ReportErrorButton message={reason} fallbackCode="TOURI-E1009" />
+      <ReportErrorButton message={reason} fallbackCode="TOURI-E1009" offline />
       <small>{t("The app will not replace your workspace with demo data.")}</small>
     </div>
   </main>
