@@ -1,7 +1,7 @@
 import type { RecoveryTask } from "@touri/contracts"
 import { useState } from "react"
 import { errorRecovery } from "../errorRecovery"
-import { t } from "../i18n"
+import { getInterruptedTaskDateLabel, getRoutineRunDateLabel, t } from "../i18n"
 import { ErrorNotice } from "./ErrorNotice"
 import { Modal } from "./Modal"
 import "./InterruptedTasks.css"
@@ -82,6 +82,7 @@ const TaskRow = ({ task, onReview, onResume, onDismiss }: Props & { task: Recove
   const isResolved = task.notification.resolvedAt !== null
   const title = getTaskTitle(task)
   const cause = getTaskCause(task)
+  const occurredAt = new Date(task.occurredAt)
   const dismiss = async () => {
     if (isBusy || (hasUncertainEffects && !isAcknowledged)) return
     setBusy(true)
@@ -98,8 +99,8 @@ const TaskRow = ({ task, onReview, onResume, onDismiss }: Props & { task: Recove
   return (
     <li className="interrupted-task" data-testid="interrupted-task">
       <strong>{title}</strong>
-      <time dateTime={new Date(task.occurredAt).toISOString()}>
-        {new Date(task.occurredAt).toLocaleString("pt-BR")}
+      <time dateTime={occurredAt.toISOString()} title={getRoutineRunDateLabel(task.occurredAt)}>
+        {getInterruptedTaskDateLabel(task.occurredAt)}
       </time>
       <p>{cause}</p>
       <button
