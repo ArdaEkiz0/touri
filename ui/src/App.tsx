@@ -36,6 +36,7 @@ import { MotionPresence, MotionSkeleton } from "./components/Motion"
 import { PageTransition } from "./components/PageTransition"
 import { RoutineEditor } from "./components/RoutineEditor"
 import { SidebarDrawer } from "./components/SidebarDrawer"
+import { getWindowChrome, WindowFrame } from "./components/WindowFrame"
 import { IntegrationsScreen, McpScreen, PreviewScreen } from "./components/WorkspaceScreens"
 import { installComputerKillSwitch } from "./computerKillSwitch"
 import { openComputerWindow } from "./computerWindow"
@@ -910,7 +911,7 @@ const AppContent = ({ kernel }: AppProps) => {
               void actions.createGroupThread(g.id).catch((e) => showNotice(userFacingError(e)))
               setRoute({ section: "bots", screen: "chat" })
             }}
-            showFakeTrafficLights={api.isMock}
+            showFakeTrafficLights={api.isMock && !isNativeDesktop()}
             bots={data.bots}
             onDeleteBot={actions.deleteBot}
             threads={data.threads}
@@ -1326,13 +1327,23 @@ const OnboardingLanding = ({
   </main>
 )
 
-const App = (props: AppProps) => (
-  <ServerModeProvider invoke={props.kernel?.services?.invoke ?? undefined} fallback={<LoadingScreen />}>
-    <ErrorBoundary area="o app" app api={props.kernel?.services?.api ?? undefined}>
-      <AppContent {...props} />
-    </ErrorBoundary>
-    <ReportMenuLauncher api={props.kernel?.services?.api ?? undefined} />
-  </ServerModeProvider>
-)
+const App = (props: AppProps) => {
+  const chrome = getWindowChrome({
+    native: isNativeDesktop(),
+    userAgent: navigator.userAgent,
+    search: window.location.search,
+  })
+  const content = (
+    <ServerModeProvider invoke={props.kernel?.services?.invoke ?? undefined} fallback={<LoadingScreen />}>
+      <ErrorBoundary area="o app" app api={props.kernel?.services?.api ?? undefined}>
+        <AppContent {...props} />
+      </ErrorBoundary>
+      <ReportMenuLauncher api={props.kernel?.services?.api ?? undefined} />
+    </ServerModeProvider>
+  )
+  if (chrome === "system") return content
+
+  return <WindowFrame>{content}</WindowFrame>
+}
 
 export default App
