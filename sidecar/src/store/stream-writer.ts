@@ -1,18 +1,25 @@
 import type { Database } from "bun:sqlite"
 import type { Kernel, Message, MessagePart, StoreApi, Thread, UiEvent } from "@touri/contracts"
-import { externalizeMessageParts } from "../kernel/output-blobs"
 import type { PerformanceStageRunner } from "../kernel/performance"
 import { captureTranscript } from "../kernel/transcript-events"
 import { materializeTranscript } from "../kernel/transcript-storage"
+import { createStreamPartWriter } from "./stream-parts"
 import { appendRejection, recordTranscriptRejection } from "./transcript-rejections"
 
-export const STREAM_WRITE_LIMITS = { delayMs: 100, bytes: 8 * 1024, batchBytes: 64 * 1024, batchEvents: 64 }
+export const STREAM_WRITE_LIMITS = {
+  delayMs: 100,
+  bytes: 8 * 1024,
+  checkpointMs: 5_000,
+  batchBytes: 64 * 1024,
+  batchEvents: 64,
+}
 const BUSY_WARNING_INTERVAL_MS = 60_000
 type Delta = Extract<UiEvent, { type: "message.delta" }>
 type Parts = Extract<UiEvent, { type: "message.parts" }>
 type StreamEvent = Delta | Parts
 type Projection = {
   message: Message
+  writeParts: ReturnType<typeof createStreamPartWriter>
   baseSeq: number
   lastEvent: string | null
   textDeltas: Map<number, Array<string>>
@@ -64,12 +71,14 @@ export const createStreamWriter = ({
   getMessage,
   getThread,
   runStage,
+  getNow = Date.now,
 }: {
   kernel: Kernel
   database: Database
   getMessage: (input: { threadId: string; messageId: string }) => Message | null
   getThread: (input: { threadId: string }) => Thread | null
   runStage?: PerformanceStageRunner
+  getNow?: () => number
 }) => {
   let pending: StreamEvent[] = []
   let pendingBytes = 0
@@ -77,6 +86,8 @@ export const createStreamWriter = ({
   const runBytes = new Map<string, number>()
   const lastByMessage = new Map<string, StreamEvent>()
   let timer: ReturnType<typeof setTimeout> | null = null
+  let checkpointAt = getNow()
+  let checkpointCursor = 0
   let flushing = false
   let stopped = false
   let lastBusyWarningAt = Number.NEGATIVE_INFINITY
@@ -100,6 +111,7 @@ export const createStreamWriter = ({
   const keyOf = (threadId: string, messageId: string): string => JSON.stringify([threadId, messageId])
   const createProjection = (message: Message, baseSeq: number, lastEvent: string | null = null): Projection => ({
     message,
+    writeParts: createStreamPartWriter(database, kernel.paths.appData, message.parts),
     baseSeq,
     lastEvent,
     textDeltas: new Map(),
@@ -343,6 +355,22 @@ export const createStreamWriter = ({
         }
         if (runStage) runStage("transcript_journal_capture", captureTranscript, database)
         else captureTranscript(database)
+        if (getNow() - checkpointAt >= STREAM_WRITE_LIMITS.checkpointMs) {
+          // One projection per interval bounds work across concurrent replies; the journal is already durable.
+          const current = Array.from(projections.values())
+          const projection = current[checkpointCursor % current.length]
+          if (projection) {
+            const target = { threadId: projection.message.threadId, messageId: projection.message.id }
+            const checkpoint = () => materializeTranscript(database, target)
+            if (runStage) runStage("transcript_projection_checkpoint", checkpoint)
+            else checkpoint()
+            materializeProjectionText(projection)
+            projection.baseSeq = projection.message.updatedSeq ?? projection.baseSeq
+            projection.lastEvent = null
+          }
+          checkpointCursor += 1
+          checkpointAt = getNow()
+        }
       })
       database.exec("PRAGMA busy_timeout = 0")
       try {
@@ -375,7 +403,8 @@ export const createStreamWriter = ({
   let retrying = false
   const flushLater = (): void => {
     try {
-      flush()
+      if (runStage) runStage("stream_batch", flush)
+      else flush()
       retrying = false
     } catch {
       // Keep the queue for retry; a background callback must not kill the server.
@@ -562,36 +591,27 @@ export const createStreamWriter = ({
     // externalize an earlier part. Prepare the whole event before applying it.
     validateIndices(current.message.parts.length)
     const prepared = input.parts.map(({ partIndex, part }) => ({ partIndex, part: structuredClone(part) }))
-    if (
-      prepared.some(
-        ({ partIndex, part }) =>
-          part.type === "text" ||
-          part.type === "reasoning" ||
-          current?.message.parts[partIndex]?.type === "text" ||
-          current?.message.parts[partIndex]?.type === "reasoning",
-      )
+    const changesText = prepared.some(
+      ({ partIndex, part }) =>
+        part.type === "text" ||
+        part.type === "reasoning" ||
+        current?.message.parts[partIndex]?.type === "text" ||
+        current?.message.parts[partIndex]?.type === "reasoning",
     )
-      materializeProjectionText(current)
-    const candidate = [...current.message.parts]
-    for (const { partIndex, part } of prepared) candidate[partIndex] = part
-    const externalized = externalizeMessageParts({ database, appData: kernel.paths.appData, parts: candidate })
-    const parts = prepared.map(({ partIndex, part }) => ({
-      partIndex,
-      part: externalized[partIndex] ?? part,
-    }))
-    // Reserving space for new live output can offload an older completed part.
-    // Journal those replacements too so recovery observes the same shared budget.
-    const patched = new Set(prepared.map(({ partIndex }) => partIndex))
-    for (const [partIndex, part] of externalized.entries())
-      if (!patched.has(partIndex) && JSON.stringify(part) !== JSON.stringify(candidate[partIndex]))
-        parts.push({ partIndex, part })
+    if (changesText) materializeProjectionText(current)
+
+    const preparedProjection = current
+    let parts = runStage
+      ? runStage("stream_part_preparation", current.writeParts, prepared)
+      : current.writeParts(prepared)
     if (!parts.length) return
-    const bytes = Buffer.byteLength(JSON.stringify(parts))
+
+    const patchBytes = Buffer.byteLength(JSON.stringify(parts))
     const buffered = runBytes.get(keyOf(input.threadId, input.messageId)) ?? 0
     // Small patches share the delta batch cap. An indivisible live progress
     // payload above 8 KiB flushes immediately and may include bounded deltas;
     // retaining its complete live tail is required for existing UI behavior.
-    if (bytes <= STREAM_WRITE_LIMITS.bytes && buffered && buffered + bytes > STREAM_WRITE_LIMITS.bytes) {
+    if (patchBytes <= STREAM_WRITE_LIMITS.bytes && buffered && buffered + patchBytes > STREAM_WRITE_LIMITS.bytes) {
       flush()
       thread = getThread({ threadId: input.threadId })
       current = projectionFor(input.threadId, input.messageId)
@@ -604,7 +624,9 @@ export const createStreamWriter = ({
       )
         return
       validateIndices(current.message.parts.length)
+      if (current !== preparedProjection) parts = current.writeParts(prepared)
     }
+    const bytes = current === preparedProjection ? patchBytes : Buffer.byteLength(JSON.stringify(parts))
     for (const [index, patch] of parts.entries()) {
       current.message.parts[patch.partIndex] = structuredClone(patch.part)
       current.textDeltas.delete(patch.partIndex)
@@ -613,7 +635,7 @@ export const createStreamWriter = ({
       const original = input.parts[index]
       if (original) original.part = structuredClone(patch.part)
     }
-    if (!current.textDeltas.size)
+    if (changesText && !current.textDeltas.size)
       current.message.text = current.message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
     queue(
       {
@@ -664,6 +686,7 @@ export const createStreamWriter = ({
       if (runStage) runStage("transcript_projection_checkpoint", materialize)
       else materialize()
       projections.clear()
+      checkpointAt = getNow()
     },
   }
 }
