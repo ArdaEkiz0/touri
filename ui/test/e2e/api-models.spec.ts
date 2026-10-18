@@ -26,7 +26,7 @@ test("API models: configure, test, select for a bot and delete a key", async ({ 
   if (shots) await page.screenshot({ path: join(shots, "api-model-saved.png") })
   await page.getByRole("button", { name: "Testar conexão com Pesquisa" }).click()
   await expect(page.getByRole("status")).toHaveText("Conexão confirmada. O modelo está pronto para usar.")
-  await page.getByRole("button", { name: "Fechar", exact: true }).click()
+  await page.getByRole("button", { name: "Fechar diálogo", exact: true }).click()
   await page.getByRole("button", { name: "Criar bot com API" }).click()
   const picker = page.getByLabel("Modelos por API", { exact: true })
   await picker.selectOption({ label: "Pesquisa · demo-model" })

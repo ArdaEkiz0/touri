@@ -47,7 +47,7 @@ import { MachineFields } from "./MachineFields"
 import { Modal } from "./Modal"
 import { ProviderInstallation } from "./ProviderInstallation"
 import { ProviderLogin } from "./ProviderLogin"
-import { ProviderMark, providerName } from "./ProviderMark"
+import { getBotProviderName, ProviderMark, providerName } from "./ProviderMark"
 import { ProviderModelField } from "./ProviderModelField"
 import { ProviderProfileFields } from "./ProviderProfileFields"
 import { SecretsPanel } from "./RightPanels"
@@ -363,7 +363,7 @@ export const BotModelModal = ({
     if (!saving) onClose()
   }
   return (
-    <Modal onClose={close} title={t("Choose model")} eyebrow={providerName(bot.provider)}>
+    <Modal onClose={close} title={t("Choose model")} eyebrow={getBotProviderName(bot)}>
       <form
         className="modal-form"
         onSubmit={async (event) => {

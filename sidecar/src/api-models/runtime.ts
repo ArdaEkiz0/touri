@@ -50,12 +50,7 @@ export const getApiRunError = (detail: string): { message: string; errorClass: R
     (known?.[0] as keyof typeof apiModelErrors | undefined) ?? getApiError(status ? Number(status) : 0, detail)
   return {
     message: apiModelErrors[reason],
-    errorClass:
-      reason === "invalid_key" || reason === "secret_unavailable" || reason === "removed"
-        ? "cli_auth"
-        : reason === "rate_limit" || reason === "no_credit"
-          ? "rate_limit"
-          : "cli_protocol",
+    errorClass: getApiRunClass(reason),
   }
 }
 
@@ -63,4 +58,10 @@ export const getApiRequiredHosts = (kernel: Kernel, reference: string | null): s
   if (!getApiModelProviderId(reference)) return []
   const model = getApiModel(kernel, reference)
   return model ? [new URL(model.baseUrl).hostname] : []
+}
+
+const getApiRunClass = (reason: keyof typeof apiModelErrors): RunErrorClass => {
+  if (["invalid_key", "secret_unavailable", "removed"].includes(reason)) return "cli_auth"
+  if (["rate_limit", "no_credit"].includes(reason)) return "rate_limit"
+  return "cli_protocol"
 }

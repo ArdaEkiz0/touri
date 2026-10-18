@@ -17,7 +17,7 @@ import { ComposerNotice } from "./ComposerNotice"
 import { ComposerProjectChip } from "./ComposerProjectChip"
 import { ErrorText } from "./ErrorDetails"
 import { ProviderLoginFlow } from "./ProviderLoginFlow"
-import { providerName } from "./ProviderMark"
+import { getBotModelName, getBotProviderName } from "./ProviderMark"
 import { useReveal } from "./Reveal"
 import "./Composer.css"
 
@@ -528,13 +528,13 @@ export const Composer = ({
                   className="composer-model"
                   aria-label={t("Choose model")}
                   title={t("Bot model sentence", {
-                    provider: providerName(bot.provider),
-                    model: bot.model || t("Padrão do provedor"),
+                    provider: getBotProviderName(bot),
+                    model: getBotModelName(bot),
                   })}
                   onClick={onOpenModel}
                 >
                   <span className="composer-model-name">
-                    {providerName(bot.provider)} · {bot.model || t("Padrão do provedor")}
+                    {getBotProviderName(bot)} · {getBotModelName(bot)}
                   </span>
                   <span aria-hidden="true">⌄</span>
                 </button>
