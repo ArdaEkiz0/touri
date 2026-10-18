@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { apiModelErrors, getApiModelReference } from "@touri/contracts"
 import { afterEach, expect, it, vi } from "vitest"
+import App from "../src/App"
 import type { ApiRequest } from "../src/api/client"
 import { createMockApi } from "../src/api/mock"
 import { ApiModelsSettings } from "../src/components/ApiModelsSettings"
@@ -137,4 +138,30 @@ it("changes an existing bot to an API model from its settings", async () => {
       expect.objectContaining({ provider: "opencode", model: getApiModelReference(model) }),
     ),
   )
+})
+
+it("sends the first API bot message without opening a CLI account login", async () => {
+  const api = createMockApi()
+  const model = await addModel(api)
+  const bot = api.getState().bots[0]
+  if (!bot) throw new Error("Missing fixture")
+  await api.request("PATCH /bots/:id", { provider: "opencode", model: getApiModelReference(model) }, { id: bot.id })
+  const original = api.request
+  const loginReads = vi.fn()
+  const request: ApiRequest = async (route, input, path) => {
+    if (route === "GET /bots/:id/provider-login/flow") {
+      loginReads()
+      return { provider: "opencode", state: "idle" } as never
+    }
+    return original(route, input, path)
+  }
+  const connected = Object.assign({}, api, { request })
+  render(<App kernel={{ services: { api: connected } }} />)
+
+  const message = await screen.findByRole("textbox", { name: `Mensagem para ${bot.name}` })
+  fireEvent.change(message, { target: { value: "Olá, organize minhas ideias." } })
+  fireEvent.click(screen.getByRole("button", { name: "Enviar", exact: true }))
+
+  await waitFor(() => expect(api.calls.some((call) => call.route === "POST /bots/:id/messages")).toBe(true))
+  expect(loginReads).not.toHaveBeenCalled()
 })
