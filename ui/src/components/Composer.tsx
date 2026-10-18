@@ -1,4 +1,5 @@
 import type { Bot, Id, Project, Run } from "@touri/contracts"
+import { getApiModelProviderId } from "@touri/contracts"
 import { type ComponentProps, type RefObject, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import { attachmentAccept, maxAttachmentBytes } from "../attachmentFiles"
@@ -103,7 +104,14 @@ export const Composer = ({
   notice,
 }: ComposerProps) => {
   const serverMode = useIsServerMode()
-  const login = useProviderLogin(api, bot?.id ?? "", bot?.provider ?? "codex", !!bot && bot.machine !== "cloud", false)
+  const apiModel = bot?.provider === "opencode" && !!getApiModelProviderId(bot.model)
+  const login = useProviderLogin(
+    api,
+    bot?.id ?? "",
+    bot?.provider ?? "codex",
+    !!bot && bot.machine !== "cloud" && !apiModel,
+    false,
+  )
   const { account: cloudAccount } = useCloudAccount(api, bot?.machine === "cloud")
   const cloudUnavailable = bot?.machine === "cloud" && cloudAccount?.runtimeAvailable !== true
   const [focused, setFocused] = useState(false)

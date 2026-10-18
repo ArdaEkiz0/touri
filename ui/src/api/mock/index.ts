@@ -1,4 +1,5 @@
 import type {
+  ApiModel,
   ApiRoutes,
   Bot,
   BotGroup,
@@ -455,10 +456,17 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
   const allProcesses = (): Array<ProcessEntry> => [...processesByProject.values()].flat()
   const findProcess = (id: string): ProcessEntry | undefined => allProcesses().find((entry) => entry.spec.id === id)
 
+  const apiModels = new Map<string, ApiModel>()
   const groups: BotGroup[] = []
   const telegram = new Map<string, TelegramIntegration>()
   const request: ApiRequest = async (route, input, pathValues = {}) => {
-    calls.push({ route: String(route), input, pathValues })
+    const recordedInput =
+      String(route).includes("/api-models") && input && typeof input === "object"
+        ? Object.fromEntries(
+            Object.entries(input).map(([name, value]) => [name, name === "apiKey" ? "[REDACTED]" : value]),
+          )
+        : input
+    calls.push({ route: String(route), input: recordedInput, pathValues })
     const key = String(route)
     if (key === "DELETE /bots/:id") {
       const bot = bots.find((bot) => bot.id === pathValues.id)
@@ -557,6 +565,25 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
       return {
         server: { ...(input as McpServer), tools: [{ name: "sample_tool", description: "Ferramenta de exemplo" }] },
       } as ApiRoutes[typeof route]["res"]
+    if (key === "GET /api-models") return { models: Array.from(apiModels.values()) } as never
+    if (key === "POST /api-models") {
+      const config = input as ApiRoutes["POST /api-models"]["req"]
+      const model: ApiModel = {
+        id: crypto.randomUUID(),
+        preset: config.preset,
+        name: config.name || "API",
+        baseUrl: config.baseUrl || "https://api.example.com/v1",
+        modelId: config.modelId,
+      }
+      apiModels.set(model.id, model)
+      return { model } as never
+    }
+    if (key === "DELETE /api-models/:id") {
+      apiModels.delete(pathValues.id || "")
+      return {} as never
+    }
+    if (key === "POST /api-models/models") return { models: ["demo-model", "demo-reasoning"] } as never
+    if (key === "POST /api-models/test" || key === "POST /api-models/:id/test") return { ok: true } as never
     if (key === "GET /provider-profiles") return { profiles: [] } as ApiRoutes[typeof route]["res"]
     if (key === "GET /providers/opencode/models")
       return {
