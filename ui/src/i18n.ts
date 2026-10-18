@@ -110,6 +110,7 @@ export const ptBR = {
   "Somente respostas finais confirmadas. Este quadro é apenas para leitura.":
     "Somente respostas finais confirmadas. Este quadro é apenas para leitura.",
   "Sem resultados confirmados neste turno.": "Sem resultados confirmados neste turno.",
+  "O membro foi removido do grupo.": "O membro foi removido do grupo.",
   "Meu Chrome só funciona em bots no computador onde o touri está rodando. Uma máquina remota não pode acessar esse navegador.":
     "Meu Chrome só funciona em bots no computador onde o touri está rodando. Uma máquina remota não pode acessar esse navegador.",
   "OpenCode está disponível no computador local e na máquina Linux. O runtime da nuvem ainda não oferece este provedor.":
@@ -467,6 +468,20 @@ export const ptBR = {
   "Excluir a rotina {name}?": "Excluir a rotina {name}?",
   "Ela não vai mais rodar. O histórico de execuções continua nas conversas.":
     "Ela não vai mais rodar. O histórico de execuções continua nas conversas.",
+  "A exclusão deste bot já está em andamento. Aguarde a conclusão.":
+    "A exclusão deste bot já está em andamento. Aguarde a conclusão.",
+  "Não foi possível encerrar as tarefas ou fechar a tela do bot. Pare as tarefas e tente excluir novamente.":
+    "Não foi possível encerrar as tarefas ou fechar a tela do bot. Pare as tarefas e tente excluir novamente.",
+  "Não foi possível apagar os logins do bot. Desbloqueie o cofre do sistema e tente excluir novamente.":
+    "Não foi possível apagar os logins do bot. Desbloqueie o cofre do sistema e tente excluir novamente.",
+  "Não foi possível remover o computador ou os volumes do bot. Confira o serviço de máquinas e tente excluir novamente.":
+    "Não foi possível remover o computador ou os volumes do bot. Confira o serviço de máquinas e tente excluir novamente.",
+  "O computador do bot ainda está em uso. Pare as tarefas e tente excluir novamente.":
+    "O computador do bot ainda está em uso. Pare as tarefas e tente excluir novamente.",
+  "Não foi possível apagar os arquivos do bot. Confira as permissões da pasta de dados e tente excluir novamente.":
+    "Não foi possível apagar os arquivos do bot. Confira as permissões da pasta de dados e tente excluir novamente.",
+  "Não foi possível remover o histórico e os vínculos do bot. Tente excluir novamente; se persistir, envie um relato do problema.":
+    "Não foi possível remover o histórico e os vínculos do bot. Tente excluir novamente; se persistir, envie um relato do problema.",
   "Não foi possível excluir a rotina. Tente novamente.": "Não foi possível excluir a rotina. Tente novamente.",
   "Excluindo…": "Excluindo…",
   Excluir: "Excluir",
@@ -2526,6 +2541,7 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Somente respostas finais confirmadas. Este quadro é apenas para leitura.":
     "Only confirmed final answers. This board is read-only.",
   "Sem resultados confirmados neste turno.": "No confirmed results in this turn yet.",
+  "O membro foi removido do grupo.": "This member was removed from the group.",
   "Salve o token do bot do Telegram.": "Save the Telegram bot token.",
   "Token inválido ou revogado.": "Invalid or revoked token.",
   "Não foi possível conectar ao Telegram. Confira sua conexão e tente novamente.":
@@ -2828,6 +2844,20 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Excluir a rotina {name}?": "Delete routine {name}?",
   "Ela não vai mais rodar. O histórico de execuções continua nas conversas.":
     "It will no longer run. Execution history remains in conversations.",
+  "A exclusão deste bot já está em andamento. Aguarde a conclusão.":
+    "This bot is already being deleted. Wait for deletion to finish.",
+  "Não foi possível encerrar as tarefas ou fechar a tela do bot. Pare as tarefas e tente excluir novamente.":
+    "Could not stop the bot's tasks or close its screen. Stop the tasks and try deleting again.",
+  "Não foi possível apagar os logins do bot. Desbloqueie o cofre do sistema e tente excluir novamente.":
+    "Could not delete the bot's sign-ins. Unlock the system keychain and try deleting again.",
+  "Não foi possível remover o computador ou os volumes do bot. Confira o serviço de máquinas e tente excluir novamente.":
+    "Could not remove the bot's computer or volumes. Check the machine service and try deleting again.",
+  "O computador do bot ainda está em uso. Pare as tarefas e tente excluir novamente.":
+    "The bot's computer is still in use. Stop the tasks and try deleting again.",
+  "Não foi possível apagar os arquivos do bot. Confira as permissões da pasta de dados e tente excluir novamente.":
+    "Could not delete the bot's files. Check the data folder permissions and try deleting again.",
+  "Não foi possível remover o histórico e os vínculos do bot. Tente excluir novamente; se persistir, envie um relato do problema.":
+    "Could not remove the bot's history and links. Try deleting again; if the problem persists, send a problem report.",
   "Não foi possível excluir a rotina. Tente novamente.": "Could not delete the routine. Try again.",
   "Excluindo…": "Deleting…",
   Excluir: "Delete",

@@ -1808,7 +1808,7 @@ test("deleting a shared conversation cancels its ask-all members and never recre
   expect(scenario.db.query("SELECT id FROM messages WHERE thread_id=?").all(scenario.thread.id)).toEqual([])
 })
 
-test("canceling a member for deletion stops ask-all in every group conversation, including queued turns", async () => {
+test("canceling a member for deletion preserves ask-all peers and unrelated queued turns", async () => {
   const finish = Promise.withResolvers<void>()
   const scenario = await fixture(async (_ctx, complete) => {
     await finish.promise
@@ -1817,20 +1817,19 @@ test("canceling a member for deletion stops ask-all in every group conversation,
   const turn = await sendAskAll(scenario)
   await until(() => scenario.order.length === 3)
   const otherThread = scenario.data.createThread(scenario.group)
-  const queued = scenario.send("Próximo pedido", otherThread.id)
+  const queued = scenario.send("@pm próximo pedido", otherThread.id)
 
   await scenario.runtime.cancelBotTurns({ botId: scenario.bots[1]?.id ?? "" })
-  await until(() => scenario.persistence.getRun(turn.id)?.status === "canceled")
+  expect(scenario.persistence.getRun(turn.id)?.status).toBe("running")
+  expect(scenario.persistence.getRun(queued.id)?.status).toBe("queued")
   finish.resolve()
+  await until(() => scenario.persistence.getRun(queued.id)?.status === "succeeded")
 
-  expect(scenario.persistence.getRun(queued.id)?.status).toBe("canceled")
-  expect(
-    scenario.runtime
-      .listRuns(scenario.thread.id)
-      .filter((run) => run.groupTurnId === turn.id)
-      .every((run) => run.status === "canceled"),
-  ).toBe(true)
-  expect(scenario.order).toHaveLength(3)
+  expect(scenario.persistence.getRun(turn.id)?.status).toBe("succeeded")
+  const members = scenario.runtime.listRuns(scenario.thread.id).filter((run) => run.groupTurnId === turn.id)
+  expect(members.find((run) => run.botId === scenario.bots[1]?.id)?.status).toBe("canceled")
+  expect(members.filter((run) => run.status === "succeeded")).toHaveLength(2)
+  expect(scenario.order).toHaveLength(4)
   expect([...scenario.canceledBots]).toEqual([scenario.bots[1]?.id ?? ""])
 })
 
