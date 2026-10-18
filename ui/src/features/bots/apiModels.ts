@@ -24,7 +24,8 @@ export const useApiModels = (api?: UiApi) => {
     void api.request("GET /api-models", {}).then(
       (result) => {
         if (!controller.signal.aborted) {
-          setModels(result.models)
+          setModels(Array.isArray(result.models) ? result.models : [])
+          setError("")
           setAvailable(result.executorAvailable !== false)
         }
       },

@@ -31,7 +31,7 @@ test("API models: configure, test, select for a bot and delete a key", async ({ 
   const picker = page.getByLabel("Modelos por API", { exact: true })
   await picker.selectOption({ label: "Pesquisa · demo-model" })
   await page.getByLabel("Nome", { exact: true }).fill("Pesquisa")
-  await expect(page.getByText("Sign in to an account to create your bot.")).toHaveCount(0)
+  await expect(page.getByText("Entre em uma conta para criar seu bot.")).toHaveCount(0)
   if (shots) await page.screenshot({ path: join(shots, "api-model-bot.png") })
   await page.getByRole("button", { name: "Criar bot", exact: true }).click()
   await expect(page.getByText("Bot de demonstração criado.")).toBeVisible()

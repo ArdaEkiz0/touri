@@ -1,6 +1,6 @@
 export const apiModelPresets = [
   { id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" },
-  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com/v1" },
+  { id: "deepseek", name: "DeepSeek", baseUrl: "https://api.deepseek.com" },
   { id: "zai", name: "Z.ai / GLM", baseUrl: "https://api.z.ai/api/paas/v4" },
   { id: "moonshot", name: "Moonshot / Kimi", baseUrl: "https://api.moonshot.ai/v1" },
   { id: "groq", name: "Groq", baseUrl: "https://api.groq.com/openai/v1" },

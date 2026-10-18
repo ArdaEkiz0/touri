@@ -29,7 +29,7 @@ afterEach(() => {
 })
 
 const key = "fixture-api-key-only-for-tests"
-const setup = async (
+const makeApiFixture = async (
   respond: (request: Request) => Response = () => Response.json({ choices: [{ message: { content: "OK" } }] }),
 ) => {
   const root = mkdtempSync(join(tmpdir(), "touri-api-models-"))
@@ -81,7 +81,7 @@ const setup = async (
 }
 
 test("API model keys only enter the encrypted server secret store; metadata and events never contain them", async () => {
-  const f = await setup()
+  const f = await makeApiFixture()
   const model = await f.add()
   expect(f.secrets.get(getApiModelAccount(model.id))).toBe(key)
   expect(readFileSync(join(f.root, "vault/secrets.enc"), "utf8")).not.toContain(key)
@@ -110,7 +110,7 @@ test("API model keys only enter the encrypted server secret store; metadata and 
 })
 
 test("testing performs a small authenticated completion without saving the draft or returning upstream text", async () => {
-  const f = await setup(() => Response.json({ choices: [{ message: { content: key } }] }))
+  const f = await makeApiFixture(() => Response.json({ choices: [{ message: { content: key } }] }))
   const response = await f.api("/api-models/test", { preset: "groq", apiKey: key, modelId: "test-model" })
   expect(await response.json()).toEqual({ ok: true })
   const outgoing = Array.from(f.requests)[0]
@@ -123,7 +123,7 @@ test("testing performs a small authenticated completion without saving the draft
 })
 
 test("model discovery filters malformed IDs and any echoed key and does not persist drafts", async () => {
-  const f = await setup(() =>
+  const f = await makeApiFixture(() =>
     Response.json({
       data: [{ id: "model-b" }, { id: key }, { id: "model-a" }, { id: "model-a" }, { id: "{env:PRIVATE}" }],
     }),
@@ -135,7 +135,7 @@ test("model discovery filters malformed IDs and any echoed key and does not pers
 })
 
 test("failed vault writes create no model; failed deletion preserves metadata and can be retried", async () => {
-  const f = await setup()
+  const f = await makeApiFixture()
   const model = await f.add()
   const callHost = f.kernel.callHost
   f.kernel.callHost = (async () => ({
@@ -157,7 +157,7 @@ test("failed vault writes create no model; failed deletion preserves metadata an
 })
 
 test("saved models can be chosen for bots and deleted models never fall back to another account", async () => {
-  const f = await setup()
+  const f = await makeApiFixture()
   const model = await f.add()
   const reference = getApiModelReference(model)
   const response = await f.api("/bots", { name: "Assistente", provider: "opencode", model: reference })
@@ -182,7 +182,7 @@ test.each([
   [429, "too many requests", "rate_limit"],
   [500, "internal error", "unavailable"],
 ] as const)("API HTTP %i maps %s to %s without exposing response bodies", async (status, detail, reason) => {
-  const f = await setup(() => Response.json({ error: { message: `${detail} ${key}` } }, { status }))
+  const f = await makeApiFixture(() => Response.json({ error: { message: `${detail} ${key}` } }, { status }))
   expect(await (await f.api("/api-models/test", { preset: "deepseek", apiKey: key, modelId: "model" })).json()).toEqual(
     { ok: false, reason },
   )
@@ -199,7 +199,7 @@ test("provider presets and custom URLs cannot embed credentials or config substi
     "groq",
     "custom",
   ])
-  expect(getApiBaseUrl("deepseek", "https://untrusted.example/v1")).toBe("https://api.deepseek.com/v1")
+  expect(getApiBaseUrl("deepseek", "https://untrusted.example/v1")).toBe("https://api.deepseek.com")
   expect(getApiBaseUrl("custom", "https://api.example.com/v1/")).toBe("https://api.example.com/v1")
   for (const url of [
     "https://user:secret@api.example.com/v1",
@@ -209,7 +209,7 @@ test("provider presets and custom URLs cannot embed credentials or config substi
     "file:///secrets",
   ])
     expect(getApiBaseUrl("custom", url)).toBeNull()
-  const f = await setup()
+  const f = await makeApiFixture()
   for (const patch of [{ modelId: key }, { name: key }, { modelId: "{env:SECRET}" }, { preset: "unknown" }]) {
     expect(
       (await f.api("/api-models", Object.assign({ preset: "deepseek", apiKey: key, modelId: "model" }, patch))).status,

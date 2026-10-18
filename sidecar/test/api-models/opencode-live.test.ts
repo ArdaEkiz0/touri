@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -16,6 +16,12 @@ import { createKernel } from "../../src/kernel"
 import { buildChildEnv } from "../../src/kernel/shell-env"
 import { createOpenCodeAdapter } from "../../src/runtime/opencode/adapter"
 import { openCodeBinary } from "../../src/runtime/opencode/config"
+
+const cleanups = new Set<() => Promise<void> | void>()
+afterEach(async () => {
+  for (const close of cleanups) await close()
+  cleanups.clear()
+})
 
 const binary = openCodeBinary(buildChildEnv({ base: process.env }))
 const getFiles = (root: string): string[] =>
@@ -77,53 +83,55 @@ test.skipIf(!binary.success)(
       modelId: "test-model",
     }
     saveApiModel(runtime.kernel, model)
-    runtime.kernel.callHost = (async (method: string, input: { account: string }) => {
+    const callHost = (async (method: string, input: { account: string }) => {
       expect(method).toBe("keychain.get")
       expect(input.account).toBe(getApiModelAccount(model.id))
       return { success: true, value: { value: key } }
     }) as Kernel["callHost"]
-    const adapter = createOpenCodeAdapter({ kernel: runtime.kernel, command: binary.path })
-    const events = new Set<ProviderEvent>()
-    try {
-      const args: StartTurnArgs = {
-        bot: {
-          id: "api-bot",
-          machine: "local",
-          provider: "opencode",
-          model: getApiModelReference(model),
-          homeDir: join(root, "bots/api-bot"),
-          projectId: null,
-          access: "full",
-          approvals: "never",
-          reasoningEffort: null,
-        } as Bot,
-        thread: { id: "api-thread", title: "Teste" } as Thread,
-        session: null,
-        fingerprint: { cwd: root } as StartTurnArgs["fingerprint"],
-        developerInstructions: "Reply OK.",
-        handoffPacket: null,
-        input: [{ type: "text", text: "Hello" }],
-        mcp: { command: "unused", args: [], env: {} },
-        env: { HOME: root },
-        conversationOnly: true,
-        signal: AbortSignal.timeout(35_000),
-        onEvent: (event) => {
-          events.add(event)
-        },
-      }
-      const result = await adapter.startTurn(args)
-      expect(result).toMatchObject({ success: true, status: "succeeded" })
-      expect(seen.has(`Bearer ${key}`)).toBe(true)
-      expect(Array.from(events).some((event) => event.type === "text_delta" && event.delta.includes("OK"))).toBe(true)
-      await adapter.shutdown()
-      const leaked = getFiles(root).filter((file) => readFileSync(file).includes(Buffer.from(key)))
-      expect(leaked.map((file) => file.slice(root.length))).toEqual([])
-    } finally {
-      await adapter.shutdown()
+    const kernel = Object.assign({}, runtime.kernel, { callHost })
+    const adapter = createOpenCodeAdapter({ kernel, command: binary.path })
+    cleanups.add(() => adapter.shutdown())
+    cleanups.add(() => {
       server.stop(true)
+    })
+    cleanups.add(() => {
       runtime.stop()
       rmSync(root, { recursive: true, force: true })
+    })
+    const events = new Set<ProviderEvent>()
+    const args: StartTurnArgs = {
+      bot: {
+        id: "api-bot",
+        machine: "local",
+        provider: "opencode",
+        model: getApiModelReference(model),
+        homeDir: join(root, "bots/api-bot"),
+        projectId: null,
+        access: "full",
+        approvals: "never",
+        reasoningEffort: null,
+      } as Bot,
+      thread: { id: "api-thread", title: "Teste" } as Thread,
+      session: null,
+      fingerprint: { cwd: root } as StartTurnArgs["fingerprint"],
+      developerInstructions: "Reply OK.",
+      handoffPacket: null,
+      input: [{ type: "text", text: "Hello" }],
+      mcp: { command: "unused", args: [], env: {} },
+      env: { HOME: root },
+      conversationOnly: true,
+      signal: AbortSignal.timeout(35_000),
+      onEvent: (event) => {
+        events.add(event)
+      },
     }
+    const result = await adapter.startTurn(args)
+    expect(result).toMatchObject({ success: true, status: "succeeded" })
+    expect(seen.has(`Bearer ${key}`)).toBe(true)
+    expect(Array.from(events).some((event) => event.type === "text_delta" && event.delta.includes("OK"))).toBe(true)
+    await adapter.shutdown()
+    const leaked = getFiles(root).filter((file) => readFileSync(file).includes(Buffer.from(key)))
+    expect(leaked.map((file) => file.slice(root.length))).toEqual([])
   },
   50_000,
 )

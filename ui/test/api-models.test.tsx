@@ -162,6 +162,23 @@ it("sends the first API bot message without opening a CLI account login", async 
   fireEvent.change(message, { target: { value: "Olá, organize minhas ideias." } })
   fireEvent.click(screen.getByRole("button", { name: "Enviar", exact: true }))
 
-  await waitFor(() => expect(api.calls.some((call) => call.route === "POST /bots/:id/messages")).toBe(true))
+  await waitFor(() => expect(api.calls.some((call) => call.route === "POST /threads/:id/messages")).toBe(true))
   expect(loginReads).not.toHaveBeenCalled()
+})
+
+it("keeps native bot settings usable when an older endpoint returns no API catalog", async () => {
+  const api = createMockApi()
+  const bot = api.getState().bots[0]
+  if (!bot) throw new Error("Missing fixture")
+  const catalog = vi.fn(async () => ({}))
+  const request: ApiRequest = async (route, input, path) =>
+    route === "GET /api-models" ? ((await catalog()) as never) : api.request(route, input, path)
+  const connected = Object.assign({}, api, { request })
+  const actions = { updateBot: vi.fn() } as WorkspaceActions
+
+  render(<BotSettingsModal api={connected} bot={bot} projects={[]} routines={[]} actions={actions} onClose={vi.fn()} />)
+
+  await waitFor(() => expect(catalog).toHaveBeenCalledOnce())
+  expect(screen.getByLabelText("Nome")).toBeVisible()
+  expect(screen.queryByLabelText("Modelos por API")).toBeNull()
 })

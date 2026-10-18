@@ -20,6 +20,8 @@ export const ApiModelPicker = ({
 }) => {
   const { models, error, available, refresh } = useApiModels(api)
   const host = useHost(api)
+  if (!models.length && !value) return error ? <small>{error}</small> : null
+
   return (
     <div className="api-model-picker">
       <label htmlFor={id}>{t("API models")}</label>
