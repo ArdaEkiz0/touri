@@ -57,6 +57,7 @@ import { TurnActivity } from "./TurnActivity"
 import { toolStatus } from "./toolPresentation"
 import { approvalTools, assistantSegments } from "./turnActivityModel"
 import { type EditMessage, UserMessageEdit } from "./UserMessageEdit"
+import { usePhoneViewport } from "./usePhoneViewport"
 
 type ChatPanelProps = {
   composerKey?: string | undefined
@@ -932,6 +933,8 @@ export const ChatPanel = ({
   routines = [],
   routineRuns = [],
 }: ChatPanelProps) => {
+  const phone = usePhoneViewport()
+  const chatIsCovered = panelOpen && phone
   const host = useHost(api)
   const serverMode = useIsServerMode() || host === "server"
   const machine = machineStateForDisplay(rawMachine)
@@ -940,6 +943,13 @@ export const ChatPanel = ({
   const draftComposerRef = useRef<DraftComposerHandle>(null)
   const localAttachmentButtonRef = useRef<HTMLButtonElement>(null)
   const attachmentButtonRef = sharedAttachmentButtonRef ?? localAttachmentButtonRef
+  useEffect(() => {
+    if (!chatIsCovered) return
+    const frame = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLButtonElement>("#bot-panel .bot-panel-top button")?.focus({ preventScroll: true })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [chatIsCovered])
   const activeRun = useMemo(
     () =>
       runs.find(
@@ -961,7 +971,7 @@ export const ChatPanel = ({
 
   if (!thread)
     return (
-      <section className="chat-panel">
+      <section className="chat-panel" inert={chatIsCovered || undefined} aria-hidden={chatIsCovered || undefined}>
         <header className="chat-header" data-tauri-drag-region="deep">
           <span className="chat-header-crumb">{t("Bots")}</span>
           <div className="chat-bot-chip">
@@ -1056,7 +1066,7 @@ export const ChatPanel = ({
     .find((part) => screenTool(part) && part.type === "tool_call" && toolStatus(part) === "running")
 
   return (
-    <section className="chat-panel">
+    <section className="chat-panel" inert={chatIsCovered || undefined} aria-hidden={chatIsCovered || undefined}>
       {group ? (
         <GroupHeader
           group={group}
