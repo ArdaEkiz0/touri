@@ -1155,6 +1155,33 @@ export const ptBR = {
   Paused: "Pausado",
   Integrations: "Integrações",
   "Report a problem": "Reportar problema",
+  "Diagnóstico incluído": "Diagnóstico incluído",
+  "Informações do aplicativo e do computador": "Informações do aplicativo e do computador",
+  "Funcionamento do aplicativo": "Funcionamento do aplicativo",
+  "Atividade recente do aplicativo": "Atividade recente do aplicativo",
+  "Erros recentes": "Erros recentes",
+  "Atividade dos bots": "Atividade dos bots",
+  "Resumo dos dados guardados": "Resumo dos dados guardados",
+  "Uso de memória do computador pelo touri": "Uso de memória do computador pelo touri",
+  "Tarefas recentes": "Tarefas recentes",
+  "Incluir a conversa selecionada": "Incluir a conversa selecionada",
+  "Ajuda a identificar incompatibilidades entre a versão do touri e o computador.":
+    "Ajuda a identificar incompatibilidades entre a versão do touri e o computador.",
+  "Mostra o resultado das verificações do funcionamento e da conexão.":
+    "Mostra o resultado das verificações do funcionamento e da conexão.",
+  "Inclui as 500 linhas mais recentes, com dados sensíveis ocultados automaticamente.":
+    "Inclui as 500 linhas mais recentes, com dados sensíveis ocultados automaticamente.",
+  "Ajuda a identificar erros que se repetem.": "Ajuda a identificar erros que se repetem.",
+  "Mostra quais bots estão em execução e o estado dos computadores usados por eles.":
+    "Mostra quais bots estão em execução e o estado dos computadores usados por eles.",
+  "Inclui o tamanho e a quantidade de registros, sem o conteúdo.":
+    "Inclui o tamanho e a quantidade de registros, sem o conteúdo.",
+  "Ajuda a investigar uso elevado de memória e travamentos.":
+    "Ajuda a investigar uso elevado de memória e travamentos.",
+  "Inclui o estado, a duração e o tipo de erro das últimas 20 tarefas.":
+    "Inclui o estado, a duração e o tipo de erro das últimas 20 tarefas.",
+  "Selecione um bot e uma conversa acima para incluir esta parte.":
+    "Selecione um bot e uma conversa acima para incluir esta parte.",
 
   "Create my first bot": "Criar meu primeiro bot",
   "Already use another tool?": "Já usa outra ferramenta?",
@@ -3851,6 +3878,32 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Verificar e cuidar deste computador": "Check and maintain this computer",
   "Verificações, armazenamento e funcionamento em segundo plano.": "Checks, storage and background operation.",
   "Reportar problema": "Report a problem",
+  "Diagnóstico incluído": "Included diagnostics",
+  "Informações do aplicativo e do computador": "App and computer details",
+  "Funcionamento do aplicativo": "App operation checks",
+  "Atividade recente do aplicativo": "Recent app activity",
+  "Erros recentes": "Recent errors",
+  "Atividade dos bots": "Bot activity",
+  "Resumo dos dados guardados": "Stored data summary",
+  "Uso de memória do computador pelo touri": "touri memory use on this computer",
+  "Tarefas recentes": "Recent tasks",
+  "Incluir a conversa selecionada": "Include selected conversation",
+  "Ajuda a identificar incompatibilidades entre a versão do touri e o computador.":
+    "Helps spot incompatibilities between the touri version and this computer.",
+  "Mostra o resultado das verificações do funcionamento e da conexão.":
+    "Shows results of checks for app operation and connection.",
+  "Inclui as 500 linhas mais recentes, com dados sensíveis ocultados automaticamente.":
+    "Includes the 500 most recent lines, with sensitive information hidden automatically.",
+  "Ajuda a identificar erros que se repetem.": "Helps identify recurring errors.",
+  "Mostra quais bots estão em execução e o estado dos computadores usados por eles.":
+    "Shows which bots are running and the status of their computers.",
+  "Inclui o tamanho e a quantidade de registros, sem o conteúdo.":
+    "Includes storage size and record counts, without their contents.",
+  "Ajuda a investigar uso elevado de memória e travamentos.": "Helps investigate high memory use and freezes.",
+  "Inclui o estado, a duração e o tipo de erro das últimas 20 tarefas.":
+    "Includes the status, duration and error type of the last 20 tasks.",
+  "Selecione um bot e uma conversa acima para incluir esta parte.":
+    "Choose a bot and conversation above to include this information.",
   "Prepare um relatório, revise o conteúdo e escolha como compartilhar.":
     "Prepare a report, review its contents and choose how to share it.",
   "Escolha de 1 a 1.440 minutos sem atividade.": "Choose between 1 and 1,440 idle minutes.",
