@@ -147,7 +147,7 @@ it("Doctor reports storage sources, polls chunk progress, and requests VACUUM on
         : base.request(route, input, path)
   await act(async () => render(<DoctorStorage api={{ ...base, request }} />))
   expect(screen.getByText(/Banco: 48 MB/)).toBeVisible()
-  expect(screen.getByText(/Registro temporário do banco \(journal\): 0 MB/)).toBeVisible()
+  expect(screen.getByText(/Registro temporário do banco: 0 MB/)).toBeVisible()
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Compactar dados" })))
   expect(compact).toHaveBeenLastCalledWith({ vacuum: false })
   expect(screen.getByRole("button", { name: "Compactando dados…" })).toBeDisabled()
@@ -160,10 +160,10 @@ it("Doctor reports storage sources, polls chunk progress, and requests VACUUM on
 })
 
 it.each([
-  ["pt-BR", "Registro temporário do banco (journal)"],
-  ["en", "Temporary database record (journal)"],
+  ["pt-BR", "Registro temporário do banco"],
+  ["en", "Temporary database log"],
 ] as const)("translates the database journal label in %s", (locale, label) => {
-  expect(t("Temporary database record (journal)", {}, locale)).toBe(label)
+  expect(t("Temporary database log", {}, locale)).toBe(label)
 })
 
 it("Doctor lets the user retry a rejected compaction", async () => {

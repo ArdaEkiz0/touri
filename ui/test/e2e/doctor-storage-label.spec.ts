@@ -18,14 +18,14 @@ for (const [width, height, size] of [
 
       const storage = dialog.getByRole("region", { name: "Armazenamento", exact: true })
       const summary = storage.locator("p").first()
-      await expect(summary).toContainText("Registro temporário do banco (journal)")
+      await expect(summary).toContainText("Registro temporário do banco")
       await expect(summary).not.toContainText("Diário")
       await page.addStyleTag({
         content: '.doctor-groups .doctor-group:not([aria-label="Armazenamento"]) { display: none !important; }',
       })
       const afterText = await summary.textContent()
       if (!afterText) throw new Error("Missing storage summary")
-      const beforeText = afterText.replace("Registro temporário do banco (journal)", "Diário")
+      const beforeText = afterText.replace("Registro temporário do banco", "Diário")
       expect(beforeText).not.toBe(afterText)
       await summary.evaluate((element, text) => {
         element.textContent = text
@@ -37,7 +37,7 @@ for (const [width, height, size] of [
       await summary.evaluate((element, text) => {
         element.textContent = text
       }, afterText)
-      await expect(summary).toContainText("Registro temporário do banco (journal)")
+      await expect(summary).toContainText("Registro temporário do banco")
       await storage.screenshot({
         path: testInfo.outputPath(`after-${size}-${theme}.png`),
         animations: "disabled",
