@@ -319,6 +319,10 @@
 .sidebar-connect > span {
   flex: 1;
 }
+/* Icons and chevrons keep their size; only the label grows. */
+.sidebar-connect > span[aria-hidden="true"] {
+  flex: none;
+}
 .sidebar-connect:hover,
 .sidebar-connect[aria-current="page"] {
   background: var(--surface-control);

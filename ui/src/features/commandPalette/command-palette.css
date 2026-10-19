@@ -36,6 +36,10 @@
   flex: 1;
   min-width: 0;
   border: 0;
+  /* Borderless inside a styled container: keep the browser's spacing, not the base field look. */
+  min-height: revert;
+  padding: revert;
+  border-radius: revert;
   background: transparent;
   color: var(--text-primary);
   font-size: var(--type-14);

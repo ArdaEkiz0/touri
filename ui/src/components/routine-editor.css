@@ -98,9 +98,14 @@
   background: var(--surface-panel);
   padding: 10px 24px;
 }
-.routine-editor :is(input, select, textarea, button):focus-visible {
+.routine-editor :is(input:is([type="checkbox"], [type="radio"]), button):focus-visible {
   outline: 2px solid var(--text-primary);
   outline-offset: 2px;
+}
+.routine-editor :is(input:not([type="checkbox"], [type="radio"]), select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--field-focus);
+  box-shadow: 0 0 0 1px var(--field-focus);
 }
 .routine-run-history {
   padding: 12px;

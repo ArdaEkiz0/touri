@@ -249,6 +249,17 @@ jobs:
       - name: Check API model setup and bot selection
         working-directory: ui
         run: bunx playwright test test/e2e/api-models.spec.ts --workers=1
+      - name: Check keyboard focus in dialogs and borderless fields
+        working-directory: ui
+        run: bunx playwright test test/e2e/field-focus.spec.ts --workers=1
+      - name: Keep synthetic field focus evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: field-focus
+          path: ui/test-results/field-focus-*/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check settings navigation on phone
         working-directory: ui
         run: bunx playwright test test/e2e/settings-nav-responsive.spec.ts --workers=1

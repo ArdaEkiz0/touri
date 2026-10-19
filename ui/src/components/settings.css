@@ -251,13 +251,23 @@
   border-color: var(--border-hover);
 }
 .modal-card.settings-modal :is(input, select, textarea):focus-visible {
-  border-color: var(--border-focus);
+  border-color: var(--field-focus);
 }
 .modal-card.settings-modal :is(input, select, textarea):disabled {
   cursor: not-allowed;
   opacity: var(--opacity-disabled);
 }
-.settings-modal :is(button, input, select, textarea):focus-visible {
+.settings-modal button:focus-visible {
+  outline: 2px solid var(--accent-info);
+  outline-offset: 3px;
+}
+/* Fields match :focus-visible on every click; their border shows focus instead of an outer ring. */
+.settings-modal :is(input:not([type="checkbox"], [type="radio"], [type="range"]), select, textarea):focus-visible {
+  outline: none;
+  border-color: var(--field-focus);
+  box-shadow: 0 0 0 1px var(--field-focus);
+}
+.settings-modal input:is([type="checkbox"], [type="radio"], [type="range"]):focus-visible {
   outline: 2px solid var(--accent-info);
   outline-offset: 3px;
 }
@@ -936,8 +946,32 @@
 .bot-folder-settings {
   display: grid;
   gap: 12px;
+  margin-top: var(--space-8);
 }
-.bot-folder-settings > .button {
+.bot-folder-settings > strong {
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+.bot-folder-settings > .button,
+.bot-folder-settings > .button-quiet {
+  justify-self: start;
+}
+.bot-folder-settings [role="status"] {
+  display: grid;
+  gap: var(--space-8);
+  margin: 0;
+  padding: var(--space-10) var(--space-12);
+  border: 1px solid var(--border-notice);
+  border-radius: var(--radius-8);
+  background: var(--surface-notice);
+  color: var(--text-notice);
+  font-size: var(--type-12);
+  line-height: var(--leading-body);
+}
+.bot-folder-settings [role="status"] p {
+  margin: 0;
+}
+.bot-folder-settings [role="status"] .button-quiet {
   justify-self: start;
 }
 .bot-folder-list {
@@ -971,24 +1005,51 @@
   display: grid;
   gap: 8px;
 }
+.discovered-projects > strong {
+  font-size: var(--type-13);
+  font-weight: var(--weight-medium);
+}
+/* Repositories read as one list panel, the same as the folder picker. */
 .discovered-projects ul {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: var(--space-4);
   max-height: 240px;
   overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-8);
+  background: var(--surface-settings-card);
+}
+.discovered-projects ul:empty {
+  display: none;
 }
 .discovered-projects li button {
   display: grid;
-  gap: 4px;
+  gap: 2px;
   width: 100%;
+  padding: var(--space-8) var(--space-10);
+  border: 0;
+  border-radius: var(--radius-6);
+  background: transparent;
+  color: var(--text-primary);
   text-align: left;
+}
+.discovered-projects li button:hover:not(:disabled) {
+  background: var(--surface-settings-hover);
+}
+.discovered-projects li strong {
+  font-size: var(--type-12);
+  font-weight: var(--weight-medium);
 }
 .discovered-projects small {
   overflow-wrap: anywhere;
   color: var(--text-secondary);
+  font-size: var(--type-11);
+}
+.discovered-projects > .button-quiet {
+  justify-self: start;
 }
 
 .bot-settings-overview {

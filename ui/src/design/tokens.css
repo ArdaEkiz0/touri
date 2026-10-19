@@ -253,6 +253,8 @@
   --scrollbar-sidebar: var(--neutral-537);
   --surface-active: var(--neutral-512);
   --border-focus: var(--neutral-415);
+  /* Field focus border: at least 3:1 against the field and its unfocused border (WCAG 1.4.11). */
+  --field-focus: var(--neutral-341);
   --border-hover: var(--neutral-390);
   --surface-indicator: var(--neutral-341);
   --text-tertiary: var(--neutral-293);
@@ -380,6 +382,7 @@
   --border-tree: var(--neutral-220);
   --border-dialog: var(--neutral-220);
   --border-focus: var(--neutral-366);
+  --field-focus: var(--neutral-366);
   --border-hover: var(--neutral-366);
   --scrollbar-chat: var(--neutral-341);
   --scrollbar-sidebar: var(--neutral-341);
