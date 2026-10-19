@@ -11,6 +11,7 @@ import type {
   Thread,
   UiEvent,
 } from "@touri/contracts"
+import { buildDeepLink } from "../../notify/native"
 import {
   createTelegramApi,
   type TelegramApi,
@@ -343,6 +344,15 @@ export const createTelegramBridge = ({
     const threadId = notification.threadId
     const chatId = chatForThread(threadId)
     if (!chatId) return
+    if (notification.reviewRequired) {
+      const link = buildDeepLink({ botId, threadId })
+      await safeSend(
+        chatId,
+        `Revise a proposta completa no cartão antes de criar o time.\nRevisar no touri: ${link}`,
+        threadId,
+      )
+      return
+    }
     const fullText = [notification.title, notification.body].filter(Boolean).join("\n")
     if (fullText.length > 3_500) {
       await safeSend(chatId, "Este pedido é longo. Abra o touri para conferir e responder.")

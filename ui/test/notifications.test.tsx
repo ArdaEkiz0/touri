@@ -186,3 +186,30 @@ it("clears ordinary notifications while guiding uncertain work to the recovery c
   const center = await screen.findByRole("dialog", { name: "Tarefas interrompidas", exact: true })
   expect(within(center).getByRole("checkbox")).toBeVisible()
 })
+
+it("team proposals offer only review and focus their full card without loaded approval details", async () => {
+  const api = createMockApi()
+  render(<App kernel={{ services: { api } }} />)
+  await screen.findByRole("textbox", { name: "Mensagem para mark" })
+
+  act(() => {
+    api.notify({
+      kind: "approval",
+      title: "Criar time",
+      body: "Revise cada bot antes de criar o time.",
+      requestId: "team-review",
+      botId: "bot-mark",
+      reviewRequired: true,
+    })
+  })
+  fireEvent.click(await screen.findByRole("button", { name: "Notificações, 1 precisa de atenção" }))
+  const center = screen.getByRole("region", { name: "Central de notificações" })
+
+  expect(within(center).queryByRole("button", { name: "Aprovar" })).toBeNull()
+  expect(within(center).queryByRole("button", { name: "Negar" })).toBeNull()
+  expect(within(center).getByText("Criar time")).toBeVisible()
+  fireEvent.click(within(center).getByRole("button", { name: "Revisar" }))
+
+  await waitFor(() => expect(screen.queryByRole("region", { name: "Central de notificações" })).toBeNull())
+  expect(api.calls.some((call) => call.route === "POST /threads/:id/respond")).toBe(false)
+})

@@ -1,6 +1,7 @@
+import { webcrypto } from "node:crypto"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import type { ApprovalPart, ToolCallPart } from "@touri/contracts"
-import { afterEach, expect, it, vi } from "vitest"
+import { type ApprovalPart, getTeamProposalHash, type ToolCallPart } from "@touri/contracts"
+import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { createMockApi } from "../src/api/mock"
 import { ApprovalCard } from "../src/components/ApprovalCard"
 import { BotCreateModal } from "../src/components/Modals"
@@ -11,7 +12,11 @@ import { ApiError } from "../src/errors"
 import { getJobTemplates } from "../src/features/jobs/catalog"
 import { getTeamReview } from "./fixtures/team-proposal"
 
-afterEach(cleanup)
+beforeEach(() => vi.stubGlobal("crypto", webcrypto))
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 const getApproval = (): ApprovalPart => ({
   type: "approval",
   approvalId: "team",
@@ -63,7 +68,11 @@ it("shows the complete reviewed team, providers, access and group with explicit 
   await screen.findByText("Criando time…")
 
   expect(api.calls).toEqual([
-    { route: "POST /approvals/:id", input: { decision: "approved", standing: false }, pathValues: { id: "team" } },
+    {
+      route: "POST /approvals/:id/team",
+      input: { proposalHash: await getTeamProposalHash(getTeamReview()) },
+      pathValues: { id: "team" },
+    },
   ])
 })
 
@@ -246,7 +255,7 @@ it.each(
       ["whitespace inside emoji", "👩\t\u200D🔬"],
     ])
     .flatMap(([label, text]) =>
-      ["name", "roleLine", "instructions", "group"].map((field) => [label, field, text] as const),
+      ["name", "roleLine", "instructions", "model", "group"].map((field) => [label, field, text] as const),
     ),
 )("%s in %s disables team approval", (_, field, text) => {
   const original = getTeamReview()
@@ -344,4 +353,20 @@ it("cleanup retains permission failures for retry", async () => {
 
   expect(screen.getByRole("button", { name: "Apagar bots criados" })).toBeEnabled()
   expect(screen.getByRole("link", { name: "mark" })).toBeVisible()
+})
+
+it.each(["pt-BR", "en"] as const)("flags stored API keys in %s", (locale) => {
+  const original = getTeamReview()
+  const review = {
+    ...original,
+    proposal: {
+      bots: original.proposal.bots.map((bot) => ({ ...bot, model: "touri-api-example" })),
+    },
+  }
+
+  render(<TeamApprovalCard part={{ ...getApproval(), teamProposal: review }} locale={locale} />)
+
+  const warning =
+    locale === "en" ? "Uses your saved API key; charges may apply." : "Usa sua chave de API salva; pode gerar custos."
+  expect(screen.getAllByText(warning)).toHaveLength(3)
 })

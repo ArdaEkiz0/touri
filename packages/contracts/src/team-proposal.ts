@@ -37,7 +37,8 @@ export const getTeamProposalReview = (value: unknown): TeamProposalReview | null
         /[\p{Zl}\p{Zp}]/u.test(bot.roleLine) ||
         !isText(bot.instructions, 12000) ||
         hasTeamHiddenCharacters(bot.instructions, true) ||
-        (bot.model != null && (typeof bot.model !== "string" || bot.model.length > 200)) ||
+        (bot.model != null &&
+          (typeof bot.model !== "string" || bot.model.length > 200 || hasTeamHiddenCharacters(bot.model))) ||
         (bot.color != null && !validAvatarColor(bot.color)) ||
         (bot.avatarShape != null && !validAvatarShape(bot.avatarShape)) ||
         (bot.avatarSeed != null &&
@@ -80,6 +81,14 @@ export const getTeamProposalReview = (value: unknown): TeamProposalReview | null
   )
     return null
   return value as TeamProposalReview
+}
+
+/** Hash the exact bounded review rendered by the card, including every instruction and group field. */
+export const getTeamProposalHash = async (review: TeamProposalReview): Promise<string> => {
+  const bytes = new TextEncoder().encode(JSON.stringify(review))
+  const hash = await crypto.subtle.digest("SHA-256", bytes)
+
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 export const hasTeamHiddenCharacters = (value: unknown, multiline = false): boolean => {

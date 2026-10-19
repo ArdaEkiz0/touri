@@ -26,10 +26,20 @@ for (const theme of ["light", "dark"] as const) {
       localStorage.removeItem("touri.workspace.v1")
     }, theme)
     await page.goto("/test/e2e/team-builder-harness.html")
+    await page.getByRole("button", { name: "Notificações, 1 precisa de atenção" }).click()
+    const center = page.getByRole("region", { name: "Central de notificações" })
+    await expect(center.getByRole("button", { name: "Aprovar" })).toHaveCount(0)
+    await expect(center.getByRole("button", { name: "Negar" })).toHaveCount(0)
+    if (process.env.TEAM_CAPTURE) {
+      await mkdir(process.env.TEAM_CAPTURE, { recursive: true })
+      await center.screenshot({ path: `${process.env.TEAM_CAPTURE}/notification-${theme}.png`, animations: "disabled" })
+    }
+    await center.getByRole("button", { name: "Revisar" }).click()
     const card = page.locator('[data-approval-id="team"]')
     await expect(card.getByRole("button", { name: "Criar time" })).toBeVisible()
     await expect(card).toContainText("Navegador e controle do computador desativados")
     await expect(card).toContainText("Instalação ou login pendente")
+    await expect(card).toContainText("Usa sua chave de API salva; pode gerar custos.")
     await expect(card.locator("details")).toHaveCount(3)
     for (const instructions of await card.locator("details").all()) {
       await expect(instructions).toHaveAttribute("open", "")

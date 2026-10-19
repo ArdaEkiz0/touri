@@ -739,12 +739,12 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
       emit({ type: "bot.deleted", botId: bot.id })
       return {} as ApiRoutes[typeof route]["res"]
     }
-    if (key === "POST /approvals/:id") {
+    if (key === "POST /approvals/:id" || key === "POST /approvals/:id/team") {
       const body = input as ApiRoutes["POST /approvals/:id"]["req"]
       for (const message of messages) {
         const part = message.parts.find((part) => part.type === "approval" && part.approvalId === pathValues.id)
         if (part?.type === "approval") {
-          part.decision = body.decision
+          part.decision = key === "POST /approvals/:id/team" ? "approved" : body.decision
           part.resolvedAt = now()
           part.standing = body.standing === true
           emit({ type: "message.updated", message })

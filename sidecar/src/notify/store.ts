@@ -19,6 +19,7 @@ type Row = {
   title: string
   body: string
   request_id: string | null
+  review_required: number
   created_at: number
   resolved_at: number | null
   resolution: string | null
@@ -65,6 +66,7 @@ const asRecord = (row: Row): NotificationRecord => {
     title: row.title,
     body: row.body,
     requestId: row.request_id,
+    ...(row.review_required === 1 ? { reviewRequired: true } : {}),
     createdAt: row.created_at,
     resolvedAt: row.resolved_at,
     resolution: row.resolution as NotifyResolution | null,
@@ -92,7 +94,7 @@ export const createNotificationStore = ({ db, now = Date.now }: { db: Database; 
   const insert = (input: NotifyInput): { notification: NotificationRecord; seq: number } => {
     const result = db
       .query(
-        "INSERT INTO notifications (kind, level, bot_id, thread_id, title, body, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO notifications (kind, level, bot_id, thread_id, title, body, request_id, review_required, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       )
       .run(
         input.kind,
@@ -102,6 +104,7 @@ export const createNotificationStore = ({ db, now = Date.now }: { db: Database; 
         input.title,
         input.body,
         input.requestId ?? null,
+        input.reviewRequired ? 1 : 0,
         now(),
       )
     const id = Number(result.lastInsertRowid)

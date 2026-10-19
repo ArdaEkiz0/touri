@@ -10,7 +10,7 @@ import type {
   ToolContext,
   ToolRegistration,
 } from "@touri/contracts"
-import { getTeamProposalReview } from "@touri/contracts"
+import { getTeamProposalHash, getTeamProposalReview } from "@touri/contracts"
 import { AVATAR_SHAPES } from "@touri/contracts/avatar"
 import { createApprovalBridge } from "../../src/approvals/bridge"
 import { createStandingGrantStore } from "../../src/approvals/grants"
@@ -140,7 +140,12 @@ const fixture = async (teamBuilder = true, timeoutMs = 5000) => {
     for (let attempt = 0; attempt < 100 && !cards.length; attempt++) await Bun.sleep(5)
     const card = cards[0]
     if (!card) throw new Error("No approval card")
-    return bridge.approve({ approvalId: card.approvalId, decision, standing })
+    return bridge.approve({
+      approvalId: card.approvalId,
+      decision,
+      standing,
+      ...(card.teamProposal ? { reviewedProposalHash: await getTeamProposalHash(card.teamProposal) } : {}),
+    })
   }
   const botCount = () => (f.db.query("SELECT count(*) AS n FROM bots").get() as { n: number }).n
   cleanups.push(async () => {
@@ -761,7 +766,7 @@ test.each(
 )("rejects %s before approval in every trusted field", async (_, text) => {
   const f = await fixture()
   const original = getProposal()
-  const proposals = ["name", "roleLine", "instructions"].map((field) => ({
+  const proposals = ["name", "roleLine", "instructions", "model"].map((field) => ({
     bots: original.bots.map((bot, index) => (index ? bot : { ...bot, [field]: text })),
   }))
   const groupProposal = { ...original, group: { ...original.group, name: text } }
@@ -780,7 +785,7 @@ test.each(
   )
 
   expect(results).toEqual(
-    Array.from({ length: 4 }, () => ({
+    Array.from({ length: 5 }, () => ({
       review: null,
       result: expect.objectContaining({ success: false, errorCode: "INVALID_ARGS" }),
     })),

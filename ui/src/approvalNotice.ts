@@ -16,7 +16,7 @@ export const approvalNotificationSummary = (item: NotificationRecord, messages: 
     /Approve (?:action|command|file change)$/.test(item.title) ||
     /^\s*[{["]|^[\w.-]+:\s/.test(item.body)
   const summary =
-    part || legacy || !isApprovalNoticeTitle(item.title)
+    !item.reviewRequired && (part || legacy || !isApprovalNoticeTitle(item.title))
       ? approvalSummary(
           part ?? {
             request: /command$/.test(item.title)

@@ -253,6 +253,22 @@ export const init = async (kernel: Kernel, runStage?: PerformanceStageRunner): P
       },
       {
         method: "POST",
+        path: "/approvals/:id/team",
+        handler: async ({ params, body }) => {
+          const proposalHash = stringField(bodyRecord(body), "proposalHash")
+          if (!/^[a-f0-9]{64}$/.test(proposalHash))
+            return routeError("DENIED", "Revise a proposta completa no cartão antes de criar o time.")
+
+          const result = await engine.approvalBridge.approve({
+            approvalId: params.id ?? "",
+            decision: "approved",
+            reviewedProposalHash: proposalHash,
+          })
+          return result.success ? { status: 200, json: {} } : routeError(result.errorCode, result.error)
+        },
+      },
+      {
+        method: "POST",
         path: "/approvals/:id",
         handler: async ({ params, body }) => {
           const decision = stringField(bodyRecord(body), "decision")

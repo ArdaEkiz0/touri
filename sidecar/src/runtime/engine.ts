@@ -206,7 +206,7 @@ type RuntimeEngine = {
     decision: "approved" | "denied"
     standing?: boolean
     message?: string
-  }) => Promise<Result<object, "NOT_FOUND">>
+  }) => Promise<Result<object, "NOT_FOUND" | "DENIED">>
   approvalBridge: ReturnType<typeof createApprovalBridge>
   approvalPrompt: (args: {
     ctx: { botId: Id; threadId: Id; runId: Id | null; signal: AbortSignal }
@@ -2251,7 +2251,7 @@ export const createRuntimeEngine = ({
     decision: "approved" | "denied"
     standing?: boolean
     message?: string
-  }): Promise<Result<object, "NOT_FOUND">> => {
+  }): Promise<Result<object, "NOT_FOUND" | "DENIED">> => {
     const resolution = decision === "approved" ? "allow" : message ? "answer" : "deny"
     const bridged = await approvalBridge.approve({
       approvalId,
@@ -2259,7 +2259,7 @@ export const createRuntimeEngine = ({
       ...(standing === undefined ? {} : { standing }),
       ...(message === undefined ? {} : { message }),
     })
-    if (bridged.success) return bridged
+    if (bridged.success || bridged.errorCode !== "NOT_FOUND") return bridged
     const pending = pendingApprovals.get(approvalId)
     if (!pending) return { success: false, errorCode: "NOT_FOUND", error: "Approval not found" }
     const currentRun = persistence.getRun(pending.runId)

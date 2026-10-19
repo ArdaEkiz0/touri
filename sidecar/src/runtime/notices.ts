@@ -42,6 +42,7 @@ export const createRuntimeNotices = ({ kernel }: { kernel: Kernel }) => {
       threadId,
       requestId,
       ...approvalSummary({ request, detail, ...(scope ? { scope } : {}) }),
+      ...(scope?.server === "touri" && scope.tool === "team_create" ? { reviewRequired: true } : {}),
     })
   }
 

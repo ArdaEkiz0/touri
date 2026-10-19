@@ -56,6 +56,7 @@ export const createNotifyRoutes = ({
     const target = store.byRequestId(parsed.requestId)
     if (!target || target.threadId !== threadId) return fail(404, "NOT_FOUND", "Request not found for this thread")
     if (target.resolvedAt !== null) return fail(409, "ALREADY_RESOLVED", "Request was already answered")
+    if (target.reviewRequired) return fail(403, "DENIED", "Revise a proposta completa no cartão antes de criar o time.")
     const answer = kernel.services.use("runtime.answerApproval")
     if (!answer) return fail(503, "RUNTIME_UNAVAILABLE", "The runtime module is not installed")
     const isAnswer = parsed.behavior === "answer" || target.kind === "question"
@@ -65,6 +66,7 @@ export const createNotifyRoutes = ({
       decision: !isAnswer && parsed.behavior === "allow" ? "approved" : "denied",
       ...(message === undefined ? {} : { message }),
     })
+    if (!result.success && result.errorCode === "DENIED") return fail(403, result.errorCode, result.error)
     if (!result.success) {
       notifier.finish({ id: target.id, resolution: "expired" })
       return fail(410, "NOT_PENDING", "The request is no longer pending")

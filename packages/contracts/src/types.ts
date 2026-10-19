@@ -965,6 +965,7 @@ export type ApiRoutes = {
   'GET /workspace/activity': { req: Record<string, never>; res: { messages: Array<Message>; runs: Array<Run> } }
   'POST /runs/:id/cancel': { req: {}; res: { run: Run } }
   'POST /runs/:id/retry': { req: {}; res: { run: Run } }
+  'POST /approvals/:id/team': { req: { proposalHash: string }; res: {} }
   'POST /approvals/:id': { req: { decision: 'approved' | 'denied'; standing?: boolean }; res: {} }
   'GET /search': { req: { q: string; botId?: Id }; res: { hits: Array<{ threadId: Id; messageId: Id; snippet: string }> } }
   'POST /attachments': { req: { grantId: string } | { path: AbsolutePath }; res: { attachment: Attachment } }
@@ -1164,6 +1165,8 @@ export type NotificationRecord = {
   title: string
   body: string
   requestId: string | null
+  /** Approval must be reviewed on its full card; remote responses are disabled. */
+  reviewRequired?: boolean
   createdAt: EpochMs
   resolvedAt: EpochMs | null
   resolution: NotifyResolution | null
@@ -1176,6 +1179,7 @@ export type NotifyInput = {
   title: string
   body: string
   requestId?: string | null
+  reviewRequired?: boolean
 }
 
 export type RespondBehavior = 'allow' | 'deny' | 'answer'
@@ -1372,7 +1376,7 @@ export type ServiceMap = {
     sync: (args: { botId: Id; threadId: Id; userText: string; assistantText: string }) => void
   }
   'approvals.present': (input: ApprovalInput) => Promise<ApprovalResult>
-  'approvals.approve': (input: { approvalId: Id; decision: 'approved' | 'denied'; standing?: boolean; message?: string }) => Promise<Result<{}, 'NOT_FOUND'>>
+  'approvals.approve': (input: { approvalId: Id; decision: 'approved' | 'denied'; standing?: boolean; message?: string; reviewedProposalHash?: string }) => Promise<Result<{}, 'NOT_FOUND' | 'DENIED'>>
   'approvals.settle': (input: { approvalId: Id; decision: 'denied' | 'expired' }) => void
   'doctor': { start: () => void; dispose: () => void; snapshot: (refresh?: boolean) => DoctorReport; settled: () => Promise<void> }
   'storage.maintenance': { scheduleSessionKeyRetry: () => void; start: (vacuum?: boolean) => boolean; snapshot: () => StorageMaintenanceStatus; dispose: (options?: { closing?: boolean }) => void }
@@ -1399,7 +1403,7 @@ export type ServiceMap = {
   'computer.input': ComputerInput
   'computer.isActive': () => { active: boolean; botId: Id | null }
   'notify.emit': (input: NotifyInput) => NotificationRecord
-  'runtime.answerApproval': (args: { approvalId: Id; decision: 'approved' | 'denied'; standing?: boolean; message?: string }) => Promise<Result<{}, 'NOT_FOUND'>>
+  'runtime.answerApproval': (args: { approvalId: Id; decision: 'approved' | 'denied'; standing?: boolean; message?: string }) => Promise<Result<{}, 'NOT_FOUND' | 'DENIED'>>
   'notify.resolve': (args: { requestId: string; resolution: NotifyResolution }) => void
 }
 

@@ -136,6 +136,7 @@ const getValidatedProposal = (
     proposal.bots.some(
       (bot) =>
         hasTeamHiddenCharacters(bot.name) ||
+        hasTeamHiddenCharacters(bot.model) ||
         !bot.roleLine.trim() ||
         hasTeamHiddenCharacters(bot.roleLine) ||
         /[\p{Zl}\p{Zp}]/u.test(bot.roleLine) ||

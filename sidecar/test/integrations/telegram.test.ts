@@ -836,3 +836,26 @@ test("a rate-limited command reply does not prevent the next stop command", asyn
 
   expect(f.canceled).toEqual([f.runs[0]?.id ?? ""])
 })
+
+test("team proposals send a conversation link without remote approval or denial callbacks", async () => {
+  const f = await fixture()
+  await f.configure({ token: TOKEN, enabled: true, allowedUserIds: ["42"] })
+  f.fake.message({ text: "Vamos montar um time." })
+  await until(() => f.runs.length === 1, "linked conversation")
+  const threadId = f.runs[0]?.threadId ?? ""
+
+  f.kernel.publish({
+    type: "notification.created",
+    notification: notification({ botId: f.bot.id, threadId, reviewRequired: true }),
+  })
+  await until(() => f.fake.sent().some((call) => String(call.params.text).includes("Revisar no touri")), "review link")
+  f.fake.tap({ data: "tg:request-1:y" })
+  await until(() => f.fake.sent("answerCallbackQuery").length === 1, "forged callback")
+
+  const notice = f.fake.sent().find((call) => String(call.params.text).includes("Revisar no touri"))
+  expect(notice?.params.text).toContain(`touri://open?bot=${f.bot.id}&thread=${threadId}`)
+  expect(notice?.params.reply_markup).toBeUndefined()
+  expect(f.answers).toEqual([])
+  expect(f.resolved).toEqual([])
+  expect(f.fake.sent("answerCallbackQuery")[0]?.params.text).toBe("Pedido expirado.")
+})

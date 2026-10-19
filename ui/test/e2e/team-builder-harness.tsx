@@ -21,7 +21,16 @@ builder.homeDir = "/workspace/builder"
 state.bots.splice(0, state.bots.length, builder)
 state.threads.splice(0, state.threads.length, thread)
 thread.title = "Meu time de conteúdo"
-const review = getTeamReview()
+const original = getTeamReview()
+const review = {
+  ...original,
+  proposal: {
+    ...original.proposal,
+    bots: original.proposal.bots.map((bot) =>
+      bot.provider === "opencode" ? { ...bot, model: "touri-api-example" } : bot,
+    ),
+  },
+}
 const tool: ToolCallPart = {
   type: "tool_call",
   callId: "team-call",
@@ -66,11 +75,20 @@ const reply: Message = {
 }
 state.messages.splice(0, state.messages.length, user, reply)
 thread.activeLeafId = reply.id
+api.notify({
+  kind: "approval",
+  botId: builder.id,
+  threadId: thread.id,
+  requestId: approval.approvalId,
+  title: "Criar time",
+  body: "Revise cada bot, provedor e acesso seguro antes de criar o time. Cancelar não cria nada.",
+  reviewRequired: true,
+})
 const request = api.request
 api.request = (async (route, args, params) => {
   const result = await request(route, args, params)
-  if (route !== "POST /approvals/:id" || params?.id !== "team") return result
-  const approved = (args as { decision: string }).decision === "approved"
+  if ((route !== "POST /approvals/:id" && route !== "POST /approvals/:id/team") || params?.id !== "team") return result
+  const approved = route === "POST /approvals/:id/team"
   if (approved) {
     const bots = await Promise.all(
       review.proposal.bots

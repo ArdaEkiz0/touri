@@ -99,6 +99,7 @@ export const apiRouteKeys = [
   "POST /runs/:id/cancel",
   "POST /runs/:id/retry",
   "POST /approvals/:id",
+  "POST /approvals/:id/team",
   "GET /search",
   "POST /attachments",
   "GET /attachments/:id",

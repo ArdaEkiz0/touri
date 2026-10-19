@@ -1,5 +1,5 @@
 import type { ApprovalPart } from "@touri/contracts"
-import { getTeamProposalReview } from "@touri/contracts"
+import { getTeamProposalHash, getTeamProposalReview } from "@touri/contracts"
 import { useRef, useState } from "react"
 import type { UiApi } from "../api/client"
 import { buildDeepLink } from "../deepLink"
@@ -39,11 +39,12 @@ export const TeamApprovalCard = ({
     setBusy(true)
     setError(null)
     try {
-      await api.request(
-        "POST /approvals/:id",
-        { decision: approved ? "approved" : "denied", standing: false },
-        { id: part.approvalId },
-      )
+      if (approved && review) {
+        const proposalHash = await getTeamProposalHash(review)
+        await api.request("POST /approvals/:id/team", { proposalHash }, { id: part.approvalId })
+      } else {
+        await api.request("POST /approvals/:id", { decision: "denied", standing: false }, { id: part.approvalId })
+      }
       setDecision(approved ? "approved" : "denied")
       onResolved?.(Date.now(), approved ? "approved" : "denied")
     } catch (caught) {
@@ -129,6 +130,11 @@ export const TeamApprovalCard = ({
                       {getProviderName(bot.provider)} · {bot.model || t("Modelo padrão", {}, locale)}
                       <br />
                       <span>{t(providerLabel, {}, locale)}</span>
+                      {bot.model?.startsWith("touri-api-") && (
+                        <strong className="team-api-warning">
+                          {t("Usa sua chave de API salva; pode gerar custos.", {}, locale)}
+                        </strong>
+                      )}
                     </p>
                     <details open>
                       <summary>{t("Instruções do bot", {}, locale)}</summary>

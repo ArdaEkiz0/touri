@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite"
 import { isDeepStrictEqual } from "node:util"
 import type { ApprovalInput, ApprovalPart, ApprovalResult, Kernel, ServiceMap } from "@touri/contracts"
+import { getTeamProposalHash, getTeamProposalReview } from "@touri/contracts"
 import { redactStructured } from "../kernel/redact"
 import { createRuntimeNotices } from "../runtime/notices"
 import { asRecord, stringValue } from "../runtime/utils"
@@ -109,7 +110,7 @@ export const createApprovalBridge = ({
     if (!isCurrent(input))
       return { success: false, errorCode: "DENIED", error: "A autorização mudou. Solicite a ação novamente." }
     const teamReview = input.scope.server === "touri" && input.toolName === "team_create"
-    if (teamReview && (!input.teamProposal || pendingTeamThreads.has(input.ctx.threadId)))
+    if (teamReview && (!getTeamProposalReview(input.teamProposal) || pendingTeamThreads.has(input.ctx.threadId)))
       return { success: false, errorCode: "DENIED", error: "Proposta de time indisponível ou já pendente." }
     const teamProposal = teamReview ? redactStructured(input.teamProposal, kernel.redact) : undefined
     if (teamReview && !isDeepStrictEqual(input.teamProposal, teamProposal))
@@ -196,9 +197,29 @@ export const createApprovalBridge = ({
       })
     })
   }
-  const approve: ServiceMap["approvals.approve"] = async ({ approvalId, decision, standing, message }) => {
+  const approve: ServiceMap["approvals.approve"] = async ({
+    approvalId,
+    decision,
+    standing,
+    message,
+    reviewedProposalHash,
+  }) => {
     const request = pending.get(approvalId)
     if (!request) return { success: false, errorCode: "NOT_FOUND", error: "Aprovação não encontrada." }
+    if (decision === "approved" && request.part.teamProposal) {
+      const expected = await getTeamProposalHash(request.part.teamProposal)
+      if (reviewedProposalHash !== expected)
+        return {
+          success: false,
+          errorCode: "DENIED",
+          error: "Revise a proposta completa no cartão antes de criar o time.",
+        }
+      // Hashing yields: another click, cancellation or timeout may settle the request meanwhile.
+      if (pending.get(approvalId) !== request)
+        return { success: false, errorCode: "NOT_FOUND", error: "Aprovação não encontrada." }
+    }
+    if (reviewedProposalHash !== undefined && !request.part.teamProposal)
+      return { success: false, errorCode: "DENIED", error: "Proposta de time indisponível." }
     if (!isCurrent(request.input)) {
       await finish(approvalId, "denied", "A ação foi cancelada ou a autorização mudou.")
       return { success: false, errorCode: "NOT_FOUND", error: "A ação foi cancelada ou a autorização mudou." }

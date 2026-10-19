@@ -206,7 +206,7 @@ const NotificationRow = ({
             <pre>{approval.technical}</pre>
           </details>
         )}
-        {!resolved && item.kind === "approval" && item.requestId && (
+        {!resolved && item.kind === "approval" && item.requestId && !item.reviewRequired && (
           <div className="notification-buttons">
             <button
               type="button"
