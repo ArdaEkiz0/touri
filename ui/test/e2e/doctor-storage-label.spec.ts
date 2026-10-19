@@ -11,6 +11,7 @@ for (const [width, height, size] of [
       await page.setViewportSize({ width, height })
       await page.addInitScript((value) => localStorage.setItem("touri.appearance.v1", value), theme)
       await page.goto("/test/e2e/r8-settings-harness.html")
+      if (width < 600) await page.getByRole("button", { name: "Abrir menu", exact: true }).click()
       await page.getByRole("button", { name: /Você Local/ }).click()
       const dialog = page.getByRole("dialog")
       await dialog.getByRole("tab", { name: "Diagnóstico", exact: true }).click()
