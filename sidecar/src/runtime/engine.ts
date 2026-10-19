@@ -83,6 +83,7 @@ import { createWorkState, type WorkState } from "./work-state"
 
 type RunState = {
   replyParentId?: Id | undefined
+  requestMessage: Message | null
   text: string
   pendingText: Array<string>
   pendingPartText: Map<number, { type: "text" | "reasoning"; chunks: Array<string> }>
@@ -543,6 +544,7 @@ export const createRuntimeEngine = ({
       partIndices: new Map(),
       dirtyParts: new Set(),
       replyMessageId: null,
+      requestMessage: null,
       turnStarted: false,
       externalSessionId: null,
       rolloutPath: null,
@@ -832,8 +834,7 @@ export const createRuntimeEngine = ({
     if (event.type === "text_delta") {
       if (!event.delta) return
       if (!state.replyMessageId) {
-        const thread = store.getThread({ threadId: run.threadId })
-        const request = run.requestMessageId && thread ? getActivePathMessage({ store, run }) : null
+        const request = state.requestMessage
         if (request) ensureReply({ run, state, store, parentId: request.id })
       }
       // Provider items are separate Markdown documents; chunks within an item are not.
@@ -889,7 +890,7 @@ export const createRuntimeEngine = ({
       }
       if (state.replyMessageId) publishMessage({ store, state, run, status: "streaming" })
       else {
-        const request = getActivePathMessage({ store, run })
+        const request = state.requestMessage
         if (request) ensureReply({ run, state, store, parentId: request.id })
       }
       return
@@ -950,8 +951,7 @@ export const createRuntimeEngine = ({
         )
       }
       if (!state.replyMessageId) {
-        const thread = store.getThread({ threadId: run.threadId })
-        const request = run.requestMessageId && thread ? getActivePathMessage({ store, run }) : null
+        const request = state.requestMessage
         if (request) ensureReply({ run, state, store, parentId: request.id })
       }
       const liveOutput =
@@ -1019,8 +1019,7 @@ export const createRuntimeEngine = ({
         scope: event.part.scope,
       })
       if (!state.replyMessageId) {
-        const thread = store.getThread({ threadId: run.threadId })
-        const request = run.requestMessageId && thread ? getActivePathMessage({ store, run }) : null
+        const request = state.requestMessage
         if (request) ensureReply({ run, state, store, parentId: request.id })
       }
       pendingApprovals.set(approvalId, {
@@ -1041,10 +1040,15 @@ export const createRuntimeEngine = ({
   }
 
   const getActivePathMessage = ({ store, run }: { store: StoreApi; run: Run }): Message | null => {
-    if (!run.requestMessageId) return null
-    if (store.getPathMessage) return store.getPathMessage({ threadId: run.threadId, messageId: run.requestMessageId })
+    const requestMessageId = run.requestMessageId
+    if (!requestMessageId) return null
 
-    return store.activePath({ threadId: run.threadId }).find((message) => message.id === run.requestMessageId) ?? null
+    const getRequestFromActivePath = () =>
+      store.getPathMessage
+        ? store.getPathMessage({ threadId: run.threadId, messageId: requestMessageId })
+        : (store.activePath({ threadId: run.threadId }).find((message) => message.id === requestMessageId) ?? null)
+
+    return runStage ? runStage("runtime_request_path_lookup", getRequestFromActivePath) : getRequestFromActivePath()
   }
 
   // Group coordination envelopes use the system role; failed member attempts alone leave no conversation to restore.
@@ -1192,6 +1196,8 @@ export const createRuntimeEngine = ({
         }) ?? undefined
     }
     const request = getActivePathMessage({ store, run })
+    // A branch switch during startup may move the visible leaf back when the first reply arrives.
+    state.requestMessage = request
     const resumedFrom = request?.role === "system" ? continuationReasonOf(request.text) : null
     const link = continuations.link(run.id)
     const originalRun = link ? persistence.getRun(link.originalRunId) : null
@@ -1466,7 +1472,8 @@ export const createRuntimeEngine = ({
         flushEvents = safeEvents.flush
         // VM preparation registers its credentials with the same live registry.
         // Keep a single stream boundary for native and guest turns, before storage.
-        const onEvent = safeEvents
+        const onEvent = (event: ProviderEvent) =>
+          runStage ? runStage("provider_event_redaction", safeEvents, event) : safeEvents(event)
         const startTurn: ProviderAdapter["startTurn"] = prepared
           ? (args) => startVmTurn({ kernel, provider, args })
           : provider.startTurn
