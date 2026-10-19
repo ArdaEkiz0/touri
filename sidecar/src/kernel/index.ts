@@ -5,6 +5,7 @@ import type { ServerWebSocket } from "bun"
 import { retryDeletedBrowserSessionKeys } from "../browser/sessionVault"
 import { compressBufferedResponse } from "../cli/web/compression"
 import { getHostIdentity } from "../platform/host"
+import { stopBotHomeWriter } from "../store/bot-home"
 import { touriVersion } from "../version"
 import { createBackgroundTask, getMeasuredStage, yieldBackground } from "./background-task"
 import { createStorageMaintenance } from "./data-maintenance"
@@ -621,6 +622,8 @@ export const createKernel = ({
       storageMaintenance.dispose({ closing: true })
       services.use("vm.desktop")?.dispose()
       services.use("doctor")?.dispose()
+      const homeWriterStopped = stopBotHomeWriter(kernel)
+      if (homeWriterStopped) await homeWriterStopped
       removePrivateFile({ root: paths.appData, path: handshakePath })
       shell.dispose()
       host.close()
