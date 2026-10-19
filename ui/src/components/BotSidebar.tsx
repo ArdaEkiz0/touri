@@ -213,7 +213,7 @@ export const Sidebar = (props: SidebarProps) => {
         <button
           type="button"
           className="sidebar-work-badge"
-          aria-label={t("View work summary", { running: runningWorkCount, queued: queuedWorkCount })}
+          aria-label={t("Working summary", { running: runningWorkCount, queued: queuedWorkCount })}
           onClick={() => navigate(() => props.onAdvancedPage("work"))}
         >
           <span>
