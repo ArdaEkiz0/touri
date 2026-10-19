@@ -3,7 +3,7 @@ import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from 
 import { createPortal } from "react-dom"
 import type { UiApi } from "../../api/client"
 import { MotionPresence } from "../../components/Motion"
-import { threadTitle } from "../../i18n"
+import { t, threadTitle } from "../../i18n"
 import { markdownSummary } from "../../markdownSummary"
 import {
   buildMessageIndex,
@@ -34,7 +34,7 @@ type CommandPaletteProps = {
 }
 
 const resultCountLabel = (count: number): string => {
-  if (count === 0) return "Nenhum resultado encontrado."
+  if (count === 0) return t("No matches yet.")
   return count === 1 ? "1 resultado" : `${count} resultados`
 }
 
@@ -87,7 +87,10 @@ export const CommandPalette = ({
       : groups
   }, [index, query, messageIndex, recentIds, search, threads, open])
   const flat = useMemo(() => groups.flatMap((group) => group.items), [groups])
+  const optionPositionById = useMemo(() => new Map(flat.map((item, position) => [item.id, position] as const)), [flat])
+  const hasResults = flat.length > 0
   const activeIndex = flat.length === 0 ? -1 : Math.min(active, flat.length - 1)
+  const listboxId = `${baseId}-listbox`
   const optionId = (position: number): string => `${baseId}-option-${position}`
 
   useEffect(() => {
@@ -197,7 +200,6 @@ export const CommandPalette = ({
     }
   }
 
-  let position = -1
   return createPortal(
     <MotionPresence show={open} kind="modal">
       {/* biome-ignore lint/a11y/noStaticElementInteractions: only clicking the noninteractive backdrop dismisses the dialog; Escape is handled by the dialog */}
@@ -226,7 +228,7 @@ export const CommandPalette = ({
               role="combobox"
               aria-label={PALETTE_INPUT_LABEL}
               aria-expanded={open}
-              aria-controls={`${baseId}-listbox`}
+              aria-controls={hasResults ? listboxId : undefined}
               aria-autocomplete="list"
               aria-activedescendant={activeIndex >= 0 ? optionId(activeIndex) : undefined}
               autoComplete="off"
@@ -241,54 +243,54 @@ export const CommandPalette = ({
             />
             <kbd>Esc</kbd>
           </div>
-          <div
-            ref={listRef}
-            id={`${baseId}-listbox`}
-            className="command-palette-list"
-            role="listbox"
-            aria-label="Resultados"
-          >
-            {groups.map((group) => (
-              // biome-ignore lint/a11y/useSemanticElements: ARIA listbox groups are role="group"; a fieldset is not valid inside a listbox
-              <div key={group.id} role="group" aria-labelledby={`${baseId}-group-${group.id}`}>
-                <div id={`${baseId}-group-${group.id}`} className="command-palette-group" role="presentation">
-                  {group.label}
+          {hasResults ? (
+            <div ref={listRef} id={listboxId} className="command-palette-list" role="listbox" aria-label="Resultados">
+              {groups.map((group) => (
+                // biome-ignore lint/a11y/useSemanticElements: ARIA listbox groups are role="group"; a fieldset is not valid inside a listbox
+                <div key={group.id} role="group" aria-labelledby={`${baseId}-group-${group.id}`}>
+                  <div id={`${baseId}-group-${group.id}`} className="command-palette-group" role="presentation">
+                    {group.label}
+                  </div>
+                  {group.items.map((item) => {
+                    const current = optionPositionById.get(item.id)
+                    if (current === undefined) return null
+
+                    const selected = current === activeIndex
+                    return (
+                      // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard selection runs through the combobox and aria-activedescendant
+                      <div
+                        key={item.id}
+                        id={optionId(current)}
+                        role="option"
+                        tabIndex={-1}
+                        aria-selected={selected}
+                        data-active={selected || undefined}
+                        data-palette-item={item.id}
+                        className="command-palette-option"
+                        onMouseMove={() => {
+                          if (!selected) setActive(current)
+                        }}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => run(item)}
+                      >
+                        <span className="command-palette-option-copy">
+                          <strong>{item.label}</strong>
+                          {item.detail && <small>{item.detail}</small>}
+                        </span>
+                        <span className="command-palette-option-hint" aria-hidden="true">
+                          ↵
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
-                {group.items.map((item) => {
-                  position += 1
-                  const current = position
-                  const selected = current === activeIndex
-                  return (
-                    // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard selection runs through the combobox and aria-activedescendant
-                    <div
-                      key={item.id}
-                      id={optionId(current)}
-                      role="option"
-                      tabIndex={-1}
-                      aria-selected={selected}
-                      data-active={selected || undefined}
-                      data-palette-item={item.id}
-                      className="command-palette-option"
-                      onMouseMove={() => {
-                        if (!selected) setActive(current)
-                      }}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => run(item)}
-                    >
-                      <span className="command-palette-option-copy">
-                        <strong>{item.label}</strong>
-                        {item.detail && <small>{item.detail}</small>}
-                      </span>
-                      <span className="command-palette-option-hint" aria-hidden="true">
-                        ↵
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            ))}
-            {flat.length === 0 && <p className="command-palette-empty">Nenhum resultado encontrado.</p>}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="command-palette-empty" role="status" aria-live="polite">
+              {t("No matches yet.")}
+            </p>
+          )}
           <div className="command-palette-footer" aria-hidden="true">
             <span>
               <kbd>↑</kbd>
@@ -301,9 +303,11 @@ export const CommandPalette = ({
               <kbd>{paletteShortcutLabel()}</kbd> fechar
             </span>
           </div>
-          <p className="visually-hidden" role="status" aria-live="polite">
-            {open ? resultCountLabel(flat.length) : ""}
-          </p>
+          {hasResults && (
+            <p className="visually-hidden" role="status" aria-live="polite">
+              {open ? resultCountLabel(flat.length) : ""}
+            </p>
+          )}
         </div>
       </div>
     </MotionPresence>,

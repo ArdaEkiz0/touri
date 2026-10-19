@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import type { ApprovalPart } from "@touri/contracts"
+import axe from "axe-core"
 import { afterEach, expect, it, vi } from "vitest"
 import App from "../src/App"
 import { createMockApi } from "../src/api/mock"
@@ -123,6 +124,27 @@ it("arrow keys move the highlighted option, wrap, announce counts, and Enter ope
   await waitFor(() =>
     expect(document.querySelector(".bot-row.selected .tb-avatar")).toHaveAttribute("data-bot-id", "bot-panko"),
   )
+})
+
+it("announces the empty state once and keeps the listbox valid with and without results", async () => {
+  await start()
+  const input = await search("zzzz")
+  const dialog = screen.getByRole("dialog", { name: DIALOG })
+
+  expect(screen.queryByRole("listbox", { name: "Resultados" })).toBeNull()
+  expect(input).not.toHaveAttribute("aria-controls")
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Nenhum resultado encontrado.")
+  expect(within(dialog).getAllByText("Nenhum resultado encontrado.", { exact: true })).toHaveLength(1)
+  const emptyState = await axe.run(dialog, { runOnly: ["aria-required-children"] })
+  expect(emptyState.violations).toEqual([])
+
+  fireEvent.change(input, { target: { value: "panko" } })
+  const listbox = await within(dialog).findByRole("listbox", { name: "Resultados" })
+  expect(input).toHaveAttribute("aria-controls", listbox.id)
+  expect(within(listbox).getByRole("option")).toBeVisible()
+  const resultsState = await axe.run(dialog, { runOnly: ["aria-required-children"] })
+
+  expect(resultsState.violations).toEqual([])
 })
 
 it("Tab stays inside the palette", async () => {
