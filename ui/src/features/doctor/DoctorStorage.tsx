@@ -53,7 +53,8 @@ export const DoctorStorage = ({ api }: { api: UiApi }) => {
       {report && (
         <div>
           <p>
-            Banco: {size(report.storage.databaseBytes)} · {t("Temporary database log")}: {size(report.storage.walBytes)}{" "}
+            Banco: {size(report.storage.databaseBytes)} · {t("Temporary database log")}: {size(report.storage.walBytes)}
+            {" · "}
             Espaço reutilizável: {size(report.storage.reusableBytes)}
           </p>
           <p>
