@@ -115,8 +115,8 @@ export const ptBR = {
     "Vale para todos os bots, no horário local do computador que executa o touri. Os outros avisos ficam guardados e contados, sem alertas nem som. Horários iguais silenciam esses avisos o dia todo.",
   "Os filtros controlam os alertas. Todos os avisos continuam na central de notificações.":
     "Os filtros controlam os alertas. Todos os avisos continuam na central de notificações.",
-  "Com a página fechada, não há som nem avisos em segundo plano. Ao voltar, você vê as solicitações pendentes.":
-    "Com a página fechada, não há som nem avisos em segundo plano. Ao voltar, você vê as solicitações pendentes.",
+  "Com o touri fechado, você não recebe avisos. Ao abrir, as solicitações pendentes aparecem.":
+    "Com o touri fechado, você não recebe avisos. Ao abrir, as solicitações pendentes aparecem.",
   "Rotina concluída sem novidades.": "Rotina concluída sem novidades.",
   "Notifications are limited to one every 30 seconds. Wait before trying again.":
     "Os avisos são limitados a um a cada 30 segundos. Aguarde antes de tentar novamente.",
@@ -796,8 +796,6 @@ export const ptBR = {
   "Os avisos do sistema estão desativados.": "Os avisos do sistema estão desativados.",
   "Abrir ajustes": "Abrir ajustes",
   "Testar aviso": "Testar aviso",
-  "Com esta página fechada, os avisos ficam guardados no servidor.":
-    "Com esta página fechada, os avisos ficam guardados no servidor.",
   "Você tem {n} solicitações pendentes.": "Você tem {n} solicitações pendentes.",
   "O sistema permite avisos. Teste a entrega.": "O sistema permite avisos. Teste a entrega.",
   "Os avisos estão desativados no touri.": "Os avisos estão desativados no touri.",
@@ -2752,8 +2750,8 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
     "Applies to all bots, using the local time of the computer running touri. Other notifications are saved and counted, without alerts or sound. Equal times silence those notifications all day.",
   "Os filtros controlam os alertas. Todos os avisos continuam na central de notificações.":
     "Filters control alerts. All notifications remain in the notification center.",
-  "Com a página fechada, não há som nem avisos em segundo plano. Ao voltar, você vê as solicitações pendentes.":
-    "A closed page makes no sound and sends no background alerts. When you return, you see pending requests.",
+  "Com o touri fechado, você não recebe avisos. Ao abrir, as solicitações pendentes aparecem.":
+    "With touri closed, you get no notifications. When you open it, pending requests appear.",
   "Rotina concluída sem novidades.": "Routine finished with no news.",
   "Notifications are limited to one every 30 seconds. Wait before trying again.":
     "Notifications are limited to one every 30 seconds. Wait before trying again.",
@@ -3425,8 +3423,6 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Os avisos do sistema estão desativados.": "System notifications are disabled.",
   "Abrir ajustes": "Open settings",
   "Testar aviso": "Test notification",
-  "Com esta página fechada, os avisos ficam guardados no servidor.":
-    "When this page is closed, notifications are kept on the server.",
   "Você tem {n} solicitações pendentes.": "You have {n} pending requests.",
   "O sistema permite avisos. Teste a entrega.": "The system allows notifications. Test delivery.",
   "Os avisos estão desativados no touri.": "Notifications are disabled in touri.",
