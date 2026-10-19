@@ -4,9 +4,10 @@ import { createMockApi } from "../../src/api/mock"
 import { DeleteBotDialog } from "../../src/components/DeleteBotDialog"
 import "../../src/styles.css"
 
+const code = new URLSearchParams(location.search).get("cleanup") === "pending" ? "TOURI-E2015" : "TOURI-E8004"
 const api = createApiClient({
   endpoint: { baseUrl: "http://127.0.0.1:1", wsUrl: "ws://127.0.0.1:1", token: "test" },
-  fetchImpl: async () => Response.json({ code: "TOURI-E8004" }, { status: 409 }),
+  fetchImpl: async () => Response.json({ code }, { status: 409 }),
 })
 const bot = createMockApi().getState().bots[0]
 const root = document.getElementById("root")

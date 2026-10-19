@@ -33,3 +33,32 @@ test("deletion failures explain the blocked step and keep the dialog available f
     "The bot's computer is still in use. Stop the tasks and try deleting again.",
   )
 })
+
+test("pending cleanup explains that the bot is already deleted in Portuguese and English", async () => {
+  const bot = createMockApi().getState().bots[0]
+  if (!bot) throw new Error("Missing fixture bot")
+  const error = new ApiError(409, "private cleanup diagnostic", "TOURI-E2015")
+  render(
+    <DeleteBotDialog
+      bot={bot}
+      onDelete={async () => {
+        throw error
+      }}
+      onClose={() => {}}
+    />,
+  )
+
+  fireEvent.change(screen.getByLabelText(`Digite o nome do bot: ${bot.name}`), { target: { value: bot.name } })
+  fireEvent.click(screen.getByRole("button", { name: "Excluir bot" }))
+
+  const message =
+    "O bot foi excluído, mas a limpeza dos anexos privados está pendente. O touri tentará concluir a limpeza automaticamente."
+  expect(await screen.findByRole("alert")).toHaveTextContent(`${message} [TOURI-E2015]`)
+  expect(screen.getByRole("alert")).not.toHaveTextContent("private cleanup diagnostic")
+  expect(screen.getByRole("button", { name: "Excluir bot" })).toBeDisabled()
+  expect(screen.getByRole("button", { name: "Fechar", exact: true })).toBeEnabled()
+  expect(error.retryable).toBe(false)
+  expect(t(message, {}, "en")).toBe(
+    "The bot was deleted, but private attachment cleanup is pending. touri will automatically try to finish the cleanup.",
+  )
+})

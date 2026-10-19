@@ -1,9 +1,14 @@
 import type { Database } from "bun:sqlite"
 import { join, relative } from "node:path"
+import { setTimeout as sleep } from "node:timers/promises"
 import type { Kernel, RegisteredErrorCode, RouteModule, VmRuntime } from "@touri/contracts"
 import { deletedBrowserSessionKey, removeBotSessionFile, removeBotSessionKey } from "../browser/sessionVault"
 import { createGroupStore } from "../groups/store"
-import { collectUnusedOutputBlobs } from "../kernel/data-maintenance"
+import {
+  collectUnusedOutputBlobs,
+  getStorageCollectionRetryDelay,
+  isStorageUpgradePending,
+} from "../kernel/data-maintenance"
 import { errorResponse, TouriError } from "../kernel/errors"
 import { removePrivateFile, removePrivateTree } from "../kernel/files"
 import { attachmentReferences } from "../kernel/output-blobs"
@@ -55,7 +60,12 @@ export const deleteBotRoute = (
           kernel.services.use("storage.maintenance")?.scheduleSessionKeyRetry()
         }
         publishBotDeletion(kernel, botId, groups, groupIds)
-        await performDeletionStep("TOURI-E2014", () => collectDeletedBotBlobs(kernel, botId, attachments, collectBlobs))
+        const collected = await collectDeletedBotBlobs(kernel, botId, attachments, collectBlobs)
+        if (!collected) {
+          kernel.services.use("storage.maintenance")?.start()
+          return errorResponse(new TouriError("TOURI-E2015"))
+        }
+
         return { status: 200, json: {} }
       } catch (error) {
         kernel.services.use("storage.maintenance")?.start()
@@ -107,36 +117,41 @@ const collectDeletedBotBlobs = async (
   botId: string,
   attachments: Set<string>,
   collectBlobs: typeof collectUnusedOutputBlobs,
-) => {
+): Promise<boolean> => {
   const db = kernel.db as Database
   const marker = `storage.deleted-attachments:${botId}`
-  const signal = AbortSignal.timeout(30_000)
+  const timeoutMs = 5000
+  const signal = AbortSignal.timeout(timeoutMs)
   try {
-    while (true) {
+    for (const attempt of [1, 2, 3]) {
+      if (isStorageUpgradePending(db)) return false
+
       signal.throwIfAborted()
       let deferred = false
       await collectBlobs(
         db,
         kernel.paths.appData,
         Date.now(),
-        undefined,
+        () => sleep(0, undefined, { signal }),
         attachments,
         undefined,
         () => {
           deferred = true
         },
         signal,
-        30_000,
+        timeoutMs,
       )
-      if (!deferred && !db.query("SELECT 1 FROM settings WHERE key = ?").get(marker)) return
+      // Shared and backup-pinned attachments intentionally survive a completed pass.
+      if (!deferred && !db.query("SELECT 1 FROM settings WHERE key = ?").get(marker)) return true
+      if (attempt === 3 || isStorageUpgradePending(db)) return false
 
-      // Storage may be changing or a backup may still pin the files; retry without blocking the request loop.
-      await Bun.sleep(10)
+      // Concurrent writes can invalidate a scan; leave sustained contention to maintenance.
+      await sleep(getStorageCollectionRetryDelay(attempt), undefined, { signal })
     }
   } catch (error) {
     kernel.log({ level: "warn", module: "vm", msg: kernel.redact(String(error)) })
-    throw error
   }
+  return false
 }
 
 const deleteBotLogins = async (kernel: Kernel, botId: string) => {

@@ -97,6 +97,52 @@ const fixture = async ({
   return { root, runtime, db: runtime.kernel.db as Database, fake, vm, request, create, sessionDeletions }
 }
 
+const makeCleanupFixture = async (collectBlobs = collectUnusedOutputBlobs) => {
+  const workspace = await fixture({ collectBlobs })
+  workspace.runtime.kernel.services.use("storage.maintenance")?.dispose()
+  const start = mock(() => true)
+  workspace.runtime.kernel.services.provide("storage.maintenance", {
+    start,
+    scheduleSessionKeyRetry: () => {},
+    snapshot: () => ({ running: false, processed: 0, total: 0 }),
+    dispose: () => {},
+  })
+  const bot = await workspace.create("Private cleanup", "local")
+  const path = join(workspace.runtime.kernel.paths.attachmentsDir, "cleanup-private.png")
+  writeFileSync(path, "image")
+  workspace.db
+    .query("INSERT INTO attachments(id,path,mime,bytes,created_at) VALUES ('cleanup-private',?,'image/png',5,1)")
+    .run(path)
+  workspace.db
+    .query(
+      "INSERT INTO messages(id,thread_id,role,kind,text,parts_json,created_at,updated_at) VALUES ('cleanup-files',?,'user','text','',?,1,1)",
+    )
+    .run(
+      bot.mainThreadId ?? "",
+      JSON.stringify([{ type: "image", attachmentId: "cleanup-private", mime: "image/png" }]),
+    )
+  const published = mock(() => {})
+  workspace.runtime.kernel.subscribe(({ event }) => {
+    if (event.type === "bot.deleted" && event.botId === bot.id) published()
+  })
+
+  return { workspace, bot, path, start, published }
+}
+
+const expectPendingCleanup = async (cleanup: Awaited<ReturnType<typeof makeCleanupFixture>>, response: Response) => {
+  const { workspace, bot, path, start, published } = cleanup
+
+  expect(response.status).toBe(409)
+  expect(await response.json()).toMatchObject({ code: "TOURI-E2015", origin: "bot-cleanup", retryable: false })
+  expect(workspace.db.query("SELECT id FROM bots WHERE id = ?").get(bot.id)).toBeNull()
+  expect(published).toHaveBeenCalledTimes(1)
+  expect(existsSync(path)).toBe(true)
+  expect(
+    workspace.db.query("SELECT value_json FROM settings WHERE key = ?").get(`storage.deleted-attachments:${bot.id}`),
+  ).toEqual({ value_json: JSON.stringify(["cleanup-private"]) })
+  expect(start).toHaveBeenCalledTimes(1)
+}
+
 const makeGroupHistory = async (f: Awaited<ReturnType<typeof fixture>>) => {
   const owner = await f.create("Group owner", "local")
   const participant = await f.create("Group participant", "local")
@@ -940,6 +986,90 @@ test("bot deletion waits for a deferred attachment cleanup under slow IO", async
   expect(f.db.query("SELECT id FROM attachments WHERE id='slow-private'").get()).toBeNull()
   expect(existsSync(sharedAttachment)).toBe(true)
   expect(f.db.query("SELECT id FROM attachments WHERE id='slow-shared'").get()).toEqual({ id: "slow-shared" })
+})
+
+test("sustained attachment deferrals stop after three passes with exponential backoff", async () => {
+  const recordAttempt = mock((time: number) => time)
+  const collectBlobs: typeof collectUnusedOutputBlobs = async (
+    _database,
+    _appData,
+    _now,
+    _yieldBatch,
+    _attachments,
+    _runStage,
+    onDeferred,
+  ) => {
+    recordAttempt(performance.now())
+    onDeferred?.("changed")
+    return 0
+  }
+  const cleanup = await makeCleanupFixture(collectBlobs)
+  const { workspace, bot } = cleanup
+
+  const response = await workspace.request(`/bots/${bot.id}`, { name: bot.name }, "DELETE")
+
+  await expectPendingCleanup(cleanup, response)
+  expect(recordAttempt).toHaveBeenCalledTimes(3)
+  const [first = 0, second = 0, third = 0] = recordAttempt.mock.calls.map(([time]) => time)
+  expect(second - first).toBeGreaterThanOrEqual(950)
+  expect(third - second).toBeGreaterThanOrEqual(1950)
+}, 10_000)
+
+test("an attachment collection exception reports deletion with cleanup pending and restarts maintenance", async () => {
+  const collectBlobs = mock(async () => {
+    throw new Error("private cleanup diagnostic")
+  })
+  const cleanup = await makeCleanupFixture(collectBlobs)
+  const { workspace, bot } = cleanup
+
+  const response = await workspace.request(`/bots/${bot.id}`, { name: bot.name }, "DELETE")
+
+  await expectPendingCleanup(cleanup, response)
+  expect(collectBlobs).toHaveBeenCalledTimes(1)
+})
+
+test("a pending storage upgrade reports deferred cleanup without starting a collection pass", async () => {
+  const collectBlobs = mock(collectUnusedOutputBlobs)
+  const cleanup = await makeCleanupFixture(collectBlobs)
+  const { workspace, bot } = cleanup
+  workspace.db
+    .query("INSERT OR REPLACE INTO schema_meta(key,value) VALUES ('storage_upgrade_22',?)")
+    .run(JSON.stringify({ cursor: 0, total: 1, backup: false }))
+
+  const response = await workspace.request(`/bots/${bot.id}`, { name: bot.name }, "DELETE")
+
+  await expectPendingCleanup(cleanup, response)
+  expect(collectBlobs).not.toHaveBeenCalled()
+  const deferred = mock(() => {})
+  expect(
+    await collectUnusedOutputBlobs(
+      workspace.db,
+      workspace.runtime.kernel.paths.appData,
+      Date.now(),
+      undefined,
+      undefined,
+      undefined,
+      deferred,
+    ),
+  ).toBe(0)
+  expect(deferred).toHaveBeenCalledWith("changed")
+})
+
+test("a completed deletion intentionally retains private attachments pinned by a backup", async () => {
+  const cleanup = await makeCleanupFixture()
+  const { workspace, bot, path, start } = cleanup
+  workspace.db.query("INSERT INTO storage_backup_attachments(attachment_id) VALUES ('cleanup-private')").run()
+
+  const response = await workspace.request(`/bots/${bot.id}`, { name: bot.name }, "DELETE")
+
+  expect(response.status).toBe(200)
+  expect(workspace.db.query("SELECT id FROM bots WHERE id = ?").get(bot.id)).toBeNull()
+  expect(existsSync(path)).toBe(true)
+  expect(workspace.db.query("SELECT id FROM attachments WHERE id = 'cleanup-private'").get()).not.toBeNull()
+  expect(
+    workspace.db.query("SELECT key FROM settings WHERE key = ?").get(`storage.deleted-attachments:${bot.id}`),
+  ).toBeNull()
+  expect(start).not.toHaveBeenCalled()
 })
 
 test("A11 deleting a symlinked bot home preserves the shared project target", async () => {
