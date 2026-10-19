@@ -21,8 +21,7 @@ for (const [width, height, size] of [
       await expect(summary).toContainText("Registro temporário do banco (journal)")
       await expect(summary).not.toContainText("Diário")
       await page.addStyleTag({
-        content:
-          '#root { visibility: hidden !important; } .doctor-groups .doctor-group:not([aria-label="Armazenamento"]) { display: none !important; }',
+        content: '.doctor-groups .doctor-group:not([aria-label="Armazenamento"]) { display: none !important; }',
       })
       const afterText = await summary.textContent()
       if (!afterText) throw new Error("Missing storage summary")
@@ -31,7 +30,7 @@ for (const [width, height, size] of [
       await summary.evaluate((element, text) => {
         element.textContent = text
       }, beforeText)
-      await page.screenshot({
+      await storage.screenshot({
         path: testInfo.outputPath(`before-${size}-${theme}.png`),
         animations: "disabled",
       })
@@ -39,7 +38,7 @@ for (const [width, height, size] of [
         element.textContent = text
       }, afterText)
       await expect(summary).toContainText("Registro temporário do banco (journal)")
-      await page.screenshot({
+      await storage.screenshot({
         path: testInfo.outputPath(`after-${size}-${theme}.png`),
         animations: "disabled",
       })
