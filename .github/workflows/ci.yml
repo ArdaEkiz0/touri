@@ -249,6 +249,17 @@ jobs:
       - name: Check API model setup and bot selection
         working-directory: ui
         run: bunx playwright test test/e2e/api-models.spec.ts --workers=1
+      - name: Check Doctor storage journal label
+        working-directory: ui
+        run: bunx playwright test test/e2e/doctor-storage-label.spec.ts --workers=1 --output test-results/doctor-storage-label
+      - name: Keep Doctor storage-label screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: doctor-storage-label
+          path: ui/test-results/doctor-storage-label/**/*.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Check bot panel accessibility on phone
         working-directory: ui
         run: bunx playwright test test/e2e/bot-panel-phone.spec.ts --workers=1
