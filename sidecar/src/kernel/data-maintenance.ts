@@ -492,6 +492,7 @@ export const createStorageMaintenance = ({
       if (stopped) return
       if (deferred) {
         collectionDeferrals += 1
+        log?.({ level: "warn", module: "store", msg: "Storage cleanup deferred: attachment reference scan deadline" })
         const delay = getStorageCollectionRetryDelay(collectionDeferrals)
         if (delay === DAY) {
           collectionDeferrals = 0

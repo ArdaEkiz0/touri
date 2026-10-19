@@ -44,6 +44,35 @@ test("a worker deadline is a deferral and terminates the pending scan", async ()
   await expect(pending).rejects.toBeInstanceOf(AttachmentReferenceScanDeferred)
 })
 
+test("a slow scan that spans several batches completes while each batch meets the deadline", async () => {
+  const root = mkdtempSync(join(tmpdir(), "touri-reference-progress-"))
+  cleanups.add(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+  const database = openDatabase({ filename: join(root, "touri.db") })
+  cleanups.add(() => {
+    database.close()
+  })
+  database.exec(`
+    INSERT INTO bots(id,name,provider,home_dir,created_at,updated_at) VALUES ('b','Synthetic','codex','/tmp',1,1);
+    INSERT INTO threads(id,bot_id,title,created_at,updated_at) VALUES ('t','b','Synthetic',1,1);
+  `)
+  const insert = database.query(
+    "INSERT INTO messages(id,thread_id,role,kind,text,parts_json,created_at,updated_at) VALUES (?,'t','user','text','Synthetic',?,1,1)",
+  )
+  Array.from({ length: 200 }, (_, index) => index).forEach((index) => {
+    insert.run(`m${index}`, JSON.stringify([{ attachmentId: index === 199 ? "kept" : "other" }]))
+  })
+  const startedAt = Date.now()
+  const scan = createAttachmentReferenceScan(database, undefined, undefined, () => Bun.sleep(60), 150)
+  cleanups.add(scan.dispose)
+
+  await scan.start()
+
+  expect(Date.now() - startedAt).toBeGreaterThan(150)
+  expect(await scan.getUnreferenced(["kept", "orphan"])).toEqual(new Set(["orphan"]))
+})
+
 test("in-memory reference reads happen once across multiple candidate pages", async () => {
   const database = new Database(":memory:")
   cleanups.add(() => {

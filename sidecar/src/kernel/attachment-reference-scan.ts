@@ -31,11 +31,16 @@ export const createAttachmentReferenceScan = (
   }
   const fail = () => reject(new Error("Attachment reference scan interrupted"))
   const defer = () => reject(new AttachmentReferenceScanDeferred("Attachment reference scan deferred"))
+  // The deadline bounds one batch, not the whole scan: a cold large store may
+  // take longer than it as long as every batch is acknowledged in time.
+  const armDeadline = () => {
+    clearTimeout(timer)
+    timer = setTimeout(defer, timeoutMs)
+  }
   const request = (message: { type: string; filename?: string; ids?: string[] }): Promise<string[]> =>
     new Promise((resolve, reject) => {
       pending = { resolve, reject }
-      // A cold large store may take minutes; a stalled worker must still be reclaimable.
-      timer = setTimeout(defer, timeoutMs)
+      armDeadline()
       worker?.postMessage(message)
     })
   const start = async () => {
@@ -61,6 +66,7 @@ export const createAttachmentReferenceScan = (
       if (data.type === "batch") {
         try {
           await yieldBatch()
+          if (pending) armDeadline()
           worker?.postMessage({ type: "continue" })
         } catch {
           fail()
