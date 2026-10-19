@@ -10,7 +10,11 @@ import { attachmentReferences } from "../kernel/output-blobs"
 import { botReplayRows, purgeBotReplay } from "../kernel/transcript-storage"
 import { providerLoginAccount } from "./provider-login"
 
-export const deleteBotRoute = (kernel: Kernel, runtime: VmRuntime): RouteModule["routes"][number] => {
+export const deleteBotRoute = (
+  kernel: Kernel,
+  runtime: VmRuntime,
+  collectBlobs = collectUnusedOutputBlobs,
+): RouteModule["routes"][number] => {
   const deleting = new Set<string>()
   return {
     method: "DELETE",
@@ -51,7 +55,7 @@ export const deleteBotRoute = (kernel: Kernel, runtime: VmRuntime): RouteModule[
           kernel.services.use("storage.maintenance")?.scheduleSessionKeyRetry()
         }
         publishBotDeletion(kernel, botId, groups, groupIds)
-        await collectDeletedBotBlobs(kernel, attachments)
+        await performDeletionStep("TOURI-E2014", () => collectDeletedBotBlobs(kernel, botId, attachments, collectBlobs))
         return { status: 200, json: {} }
       } catch (error) {
         kernel.services.use("storage.maintenance")?.start()
@@ -98,12 +102,40 @@ const publishBotDeletion = (
   kernel.publish({ type: "bot.deleted", botId })
 }
 
-const collectDeletedBotBlobs = async (kernel: Kernel, attachments: Set<string>) => {
-  // The bot is already gone; the pending attachment list lets storage maintenance retry later.
+const collectDeletedBotBlobs = async (
+  kernel: Kernel,
+  botId: string,
+  attachments: Set<string>,
+  collectBlobs: typeof collectUnusedOutputBlobs,
+) => {
+  const db = kernel.db as Database
+  const marker = `storage.deleted-attachments:${botId}`
+  const signal = AbortSignal.timeout(30_000)
   try {
-    await collectUnusedOutputBlobs(kernel.db as Database, kernel.paths.appData, Date.now(), null, attachments)
+    while (true) {
+      signal.throwIfAborted()
+      let deferred = false
+      await collectBlobs(
+        db,
+        kernel.paths.appData,
+        Date.now(),
+        undefined,
+        attachments,
+        undefined,
+        () => {
+          deferred = true
+        },
+        signal,
+        30_000,
+      )
+      if (!deferred && !db.query("SELECT 1 FROM settings WHERE key = ?").get(marker)) return
+
+      // Storage may be changing or a backup may still pin the files; retry without blocking the request loop.
+      await Bun.sleep(10)
+    }
   } catch (error) {
     kernel.log({ level: "warn", module: "vm", msg: kernel.redact(String(error)) })
+    throw error
   }
 }
 

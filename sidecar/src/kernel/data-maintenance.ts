@@ -163,6 +163,17 @@ export const compactMessageBatch = ({
     })
     .immediate()
 
+const getDeletedAttachmentIds = (value: string): string[] | null => {
+  try {
+    const ids: unknown = JSON.parse(value)
+    if (!Array.isArray(ids)) return null
+
+    return ids.filter((id): id is string => typeof id === "string")
+  } catch {
+    return null
+  }
+}
+
 export const collectUnusedOutputBlobs = async (
   database: Database,
   appData: string,
@@ -206,13 +217,14 @@ export const collectUnusedOutputBlobs = async (
     if (!rows.length) break
 
     // Only this pass's local accumulator changes; durable markers survive an interruption.
-    pending.push(...rows)
     rows.forEach((row) => {
-      const ids: unknown = JSON.parse(row.value_json)
-      if (Array.isArray(ids))
-        ids.forEach((id) => {
-          if (typeof id === "string") eligible.add(id)
-        })
+      const ids = getDeletedAttachmentIds(row.value_json)
+      if (!ids) return
+
+      pending.push(row)
+      ids.forEach((id) => {
+        eligible.add(id)
+      })
     })
     pendingCursor = rows.at(-1)?.key ?? pendingCursor
     if (yieldBatch) await yieldBatch()
