@@ -335,16 +335,26 @@ fn drop_grants_redeem_once_over_the_authenticated_bridge_only() {
 
 #[cfg(windows)]
 #[test]
-fn windows_drop_grants_fail_closed_until_native_identity_is_implemented() {
-    let root = std::env::temp_dir().join(format!("touri-drop-unsupported-{}", std::process::id()));
+fn windows_drop_grants_pin_native_identity_and_refuse_a_swapped_file() {
+    let root = std::env::temp_dir().join(format!("touri-drop-identity-{}", std::process::id()));
     std::fs::create_dir_all(&root).unwrap();
     let path = root.join("fixture.txt");
+    let other = root.join("other.txt");
     std::fs::write(&path, "fixture").unwrap();
-    let outcome = touri_lib::file_grants::FileGrants::new().issue(&[path]);
-    assert!(outcome.granted.is_empty());
+    std::fs::write(&other, "replacement").unwrap();
+    let grants = touri_lib::file_grants::FileGrants::new();
+    let outcome = grants.issue(std::slice::from_ref(&path));
+    assert!(outcome.rejected.is_empty(), "{:?}", outcome.rejected);
+    let id = outcome.granted[0].id.clone();
+    assert_eq!(grants.redeem(&id).unwrap().size, 7);
+    let sentinel = grants.issue(std::slice::from_ref(&path)).granted[0]
+        .id
+        .clone();
+    std::fs::remove_file(&path).unwrap();
+    std::fs::rename(&other, &path).unwrap();
     assert_eq!(
-        outcome.rejected[0].reason,
-        touri_lib::file_grants::RejectReason::Unsupported
+        grants.redeem(&sentinel),
+        Err(touri_lib::file_grants::RedeemError::Changed)
     );
     std::fs::remove_dir_all(root).unwrap();
 }

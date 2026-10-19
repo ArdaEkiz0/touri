@@ -285,6 +285,40 @@ pub fn ensure_private_directory(path: &Path) -> io::Result<()> {
     Pinned::root(path, true).map(|_| ())
 }
 
+/// Volume serial and file index for a regular, single-link file that is not a reparse point.
+/// The handle is opened with `FILE_FLAG_OPEN_REPARSE_POINT`, so a leaf that was swapped for a
+/// link is refused instead of followed, and alternate data streams are rejected by name.
+pub fn file_identity(path: &Path) -> io::Result<(u64, u64)> {
+    let stream_name = path
+        .file_name()
+        .map(|name| name.encode_wide().any(|unit| unit == u16::from(b':')))
+        .unwrap_or(true);
+    if stream_name {
+        return Err(denied());
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .access_mode(FILE_GENERIC_READ)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)?;
+    let metadata = file.metadata()?;
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if !metadata.is_file()
+        || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+        || info.nNumberOfLinks != 1
+    {
+        return Err(denied());
+    }
+    Ok((
+        u64::from(info.dwVolumeSerialNumber),
+        (u64::from(info.nFileIndexHigh) << 32) | u64::from(info.nFileIndexLow),
+    ))
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Request {
