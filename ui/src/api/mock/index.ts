@@ -270,7 +270,12 @@ const defaultDoctor: DoctorReport = {
 }
 
 /** Optional demo states for screenshots and manual review, selected with `?mockScenario=` in the mock UI. */
-export type MockScenario = "resumed-turn" | "routine-conversation" | "interrupted-tasks" | "message-edit-target"
+export type MockScenario =
+  | "resumed-turn"
+  | "routine-conversation"
+  | "interrupted-tasks"
+  | "group-context-missing"
+  | "message-edit-target"
 
 export const getRoutineConversationFixture = (): {
   thread: Thread
@@ -454,6 +459,32 @@ const getInterruptedTaskFixture = (): { messages: Message[]; runs: Run[] } => {
   }
 }
 
+const getGroupContextMissingFixture = (): { message: Message; run: Run } => {
+  const threadId = "thread-mark"
+  const runId = "run-group-context-missing"
+  const detail = "O grupo ou a conversa não existe mais. Este turno não foi executado."
+  const message: Message = {
+    ...createMessage({
+      id: "m-group-context-missing",
+      threadId,
+      role: "assistant",
+      text: "",
+      status: "failed",
+      runId,
+      parentId: "m2",
+    }),
+    parts: [{ type: "notice", level: "error", code: "run_failed", text: `group_context_missing: ${detail}` }],
+  }
+  const run: Run = {
+    ...createRun({ id: runId, threadId, botId: "bot-mark", status: "failed", errorClass: "group_context_missing" }),
+    requestMessageId: "m2",
+    replyMessageId: message.id,
+    errorMessage: detail,
+  }
+
+  return { message, run }
+}
+
 const importReport: ImportReport = {
   importId: "import-demo",
   origin: "/Users/demo/.legacy-app",
@@ -478,6 +509,7 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
 
   const routineFixture = scenario === "routine-conversation" ? getRoutineConversationFixture() : null
   const interruptedFixture = scenario === "interrupted-tasks" ? getInterruptedTaskFixture() : null
+  const groupContextMissingFixture = scenario === "group-context-missing" ? getGroupContextMissingFixture() : null
   const project = createProject()
   const projects: Array<Project> = [project]
   // These local collections model server storage; deletion handlers replace them with the retained rows.
@@ -485,6 +517,8 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
   let threads = seed.threads.map((thread) => {
     if (thread.id === routineFixture?.thread.id) return routineFixture.thread
     const saved = createThread(thread)
+    if (thread.id === "thread-mark" && groupContextMissingFixture)
+      return { ...saved, activeLeafId: groupContextMissingFixture.message.id }
     if (thread.id !== "thread-mark" || !interruptedFixture) return saved
     return { ...saved, activeLeafId: interruptedFixture.messages.at(-1)?.id ?? saved.activeLeafId }
   })
@@ -492,13 +526,18 @@ export const createMockApi = ({ scenario }: { scenario?: MockScenario | null } =
     ...seed.messages.filter((message) => message.threadId !== routineFixture?.thread.id).map(getSeedMessage),
     ...(routineFixture?.messages ?? []),
     ...(interruptedFixture?.messages ?? []),
+    ...(groupContextMissingFixture ? [groupContextMissingFixture.message] : []),
   ]
   const mem0Settings = new Map<string, import("@touri/contracts").Mem0Settings>()
   const goals = new Map<string, Goal>()
   const learning = new Map<string, BotLearning>()
   const machines = new Map<string, import("@touri/contracts").MachineState>()
   const networkPolicies = new Map<string, Record<string, unknown>>()
-  const initialRuns = [...(routineFixture ? [routineFixture.run] : []), ...(interruptedFixture?.runs ?? [])]
+  const initialRuns = [
+    ...(routineFixture ? [routineFixture.run] : []),
+    ...(interruptedFixture?.runs ?? []),
+    ...(groupContextMissingFixture ? [groupContextMissingFixture.run] : []),
+  ]
   let runs = new Map<string, Run>(initialRuns.map((run) => [run.id, run]))
   if (scenario === "resumed-turn") {
     const fixture = resumedTurnFixture()

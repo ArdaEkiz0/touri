@@ -249,6 +249,8 @@ const statusForError = (errorClass: RunErrorClass): RunStatus => {
   return "failed"
 }
 
+const DRAIN_CHANGE_TIMEOUT_MS = 1_000
+
 const initialUsage = (): RunUsage => ({
   inputTokens: 0,
   outputTokens: 0,
@@ -332,6 +334,12 @@ export const createRuntimeEngine = ({
   const providers = new Map<Id, ProviderAdapter>()
   const states = new Map<Id, RunState>()
   const pendingApprovals = new Map<Id, PendingApproval>()
+  let drainChange = Promise.withResolvers<void>()
+  const signalDrainChange = (): void => {
+    const previous = drainChange
+    drainChange = Promise.withResolvers<void>()
+    previous.resolve()
+  }
   const measureStage = <Value>(stage: PerformanceStage, action: () => Value): Value =>
     runStage ? runStage(stage, action) : action()
   const codexOptions = {
@@ -452,9 +460,13 @@ export const createRuntimeEngine = ({
     }
   }
   const getRunSnapshot = (run: Run): Run => getSnapshot(run, getQueueSnapshot())
-  const publishRun = (run: Run): void => kernel.publish({ type: "run.updated", run: getRunSnapshot(run) })
+  const publishRun = (run: Run): void => {
+    signalDrainChange()
+    kernel.publish({ type: "run.updated", run: getRunSnapshot(run) })
+  }
   const publishQueue = (): void => {
     const queue = getQueueSnapshot()
+    signalDrainChange()
     queue.waiting.forEach((run) => {
       kernel.publish({ type: "run.updated", run: getSnapshot(run, queue) })
     })
@@ -1944,6 +1956,7 @@ export const createRuntimeEngine = ({
     const timer = setTimeout(
       () => {
         pendingContinuations.delete(run.id)
+        signalDrainChange()
         const ready = !shuttingDown && canStartContinuation(run, plan)
         if (!ready || !startContinuation({ run, plan })) abandonContinuation({ run, status: "failed" })
       },
@@ -2025,7 +2038,12 @@ export const createRuntimeEngine = ({
       updateRun(run, { status: "starting", startedAt: Date.now() })
       const execution = executeGoalTurn(run)
       executions.set(run.id, execution)
-      void execution.finally(() => executions.delete(run.id)).catch(() => {})
+      void execution
+        .finally(() => {
+          executions.delete(run.id)
+          signalDrainChange()
+        })
+        .catch(() => {})
     }
   }
 
@@ -2679,14 +2697,28 @@ export const createRuntimeEngine = ({
   }
 
   const canDrainRun = (runId: Id): boolean => continuations.link(runId) !== null || continuations.isGroupRun(runId)
+  const hasDrainWork = (): boolean => executions.size > 0 || pendingContinuations.size > 0 || queued.some(canDrainRun)
+  const waitForDrainChange = (changed: Promise<void>): Promise<boolean> =>
+    new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(false), DRAIN_CHANGE_TIMEOUT_MS)
+      void changed.then(() => {
+        clearTimeout(timeout)
+        resolve(true)
+      })
+    })
 
   const waitForDrain = async (): Promise<void> => {
     await startupCleanup
-    while (!shuttingDown && (executions.size > 0 || pendingContinuations.size > 0 || queued.some(canDrainRun))) {
+    while (!shuttingDown && hasDrainWork()) {
+      const changed = drainChange.promise
       await drain()
-      await Promise.all(executions.values())
-      // Continuations can be scheduled after their provider execution finishes.
-      await new Promise<void>((resolve) => setTimeout(resolve, 10))
+      await Promise.all([...executions.values()])
+      if (!hasDrainWork()) return
+      if (pendingContinuations.size > 0) {
+        await changed
+        continue
+      }
+      if (!(await waitForDrainChange(changed))) return
     }
   }
 
@@ -2706,6 +2738,7 @@ export const createRuntimeEngine = ({
         abandonContinuation({ run: pending.run, status: "failed" })
     }
     shuttingDown = true
+    signalDrainChange()
     for (const [id, controller] of controllers) {
       const state = getState(id)
       state.completionError ??= { errorClass: "app_restart", errorMessage: "touri restarted" }
