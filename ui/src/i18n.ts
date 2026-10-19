@@ -1572,6 +1572,10 @@ export const ptBR = {
   "Sign in to an account to create your bot.": "Entre em uma conta para criar seu bot.",
   "Choose an account": "Escolha uma conta",
   "Use another account": "Usar outra conta",
+  "Choose a Claude Code model. Each option uses the latest version of that model.":
+    "Escolha um modelo do Claude Code. Cada opção usa a versão mais recente desse modelo.",
+  "Other model…": "Outro modelo…",
+  "Model name": "Nome do modelo",
   "Choose the account this bot will use.": "Escolha a conta que este bot vai usar.",
   "Sign in above before creating your bot.": "Entre em uma conta acima antes de criar seu bot.",
   "Could not check accounts. Choose an account and try again.":
@@ -4129,6 +4133,10 @@ const englishOverrides: Partial<Record<TranslationKey, string>> = {
   "Sign in to an account to create your bot.": "Sign in to an account to create your bot.",
   "Choose an account": "Choose an account",
   "Use another account": "Use another account",
+  "Choose a Claude Code model. Each option uses the latest version of that model.":
+    "Choose a Claude Code model. Each option uses the latest version of that model.",
+  "Other model…": "Other model…",
+  "Model name": "Model name",
   "Choose the account this bot will use.": "Choose the account this bot will use.",
   "Sign in above before creating your bot.": "Sign in above before creating your bot.",
   "Could not check accounts. Choose an account and try again.":
