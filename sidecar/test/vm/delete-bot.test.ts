@@ -13,6 +13,7 @@ import {
 import { createGroupRuntime } from "../../src/groups/runtime"
 import { createGroupStore } from "../../src/groups/store"
 import { createKernel } from "../../src/kernel"
+import { flushFileIoAsync } from "../../src/kernel/async-files"
 import { createEventBus } from "../../src/kernel/event-bus"
 import { createRuntimeEngine } from "../../src/runtime/engine"
 import { createRuntimePersistence } from "../../src/runtime/persistence"
@@ -623,6 +624,7 @@ test("a failed blob collection after the bot is deleted still reports success", 
   ).toEqual({
     key: `storage.deleted-attachments:${history.owner.id}`,
   })
+  await flushFileIoAsync()
   const logs = readFileSync(join(f.runtime.kernel.paths.logsDir, "sidecar.log"), "utf8")
     .trim()
     .split("\n")
