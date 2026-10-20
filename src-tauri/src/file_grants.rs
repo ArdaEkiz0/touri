@@ -1,5 +1,5 @@
 #[cfg(windows)]
-use crate::platform::windows_files::file_identity;
+use crate::platform::windows_files::get_file_identity_for_path;
 use std::collections::HashMap;
 use std::fs::{canonicalize, symlink_metadata, Metadata};
 #[cfg(unix)]
@@ -48,7 +48,7 @@ pub struct DropOutcome {
 pub struct RedeemedFile {
     pub path: String,
     pub dev: u64,
-    pub ino: u64,
+    pub ino: u128,
     pub size: u64,
 }
 
@@ -72,7 +72,7 @@ impl RedeemError {
 struct Grant {
     path: PathBuf,
     dev: u64,
-    ino: u64,
+    ino: u128,
     expires: Instant,
 }
 
@@ -100,21 +100,21 @@ fn new_grant_id() -> Result<String, RejectReason> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct FileIdentity {
     dev: u64,
-    ino: u64,
+    ino: u128,
 }
 
 #[cfg(unix)]
-fn identity_of(path: &Path) -> Result<FileIdentity, RejectReason> {
+fn get_identity(path: &Path) -> Result<FileIdentity, RejectReason> {
     let metadata = symlink_metadata(path).map_err(|_| RejectReason::Unreadable)?;
     Ok(FileIdentity {
         dev: metadata.dev(),
-        ino: metadata.ino(),
+        ino: u128::from(metadata.ino()),
     })
 }
 
 #[cfg(windows)]
-fn identity_of(path: &Path) -> Result<FileIdentity, RejectReason> {
-    let (dev, ino) = file_identity(path).map_err(|error| match error.kind() {
+fn get_identity(path: &Path) -> Result<FileIdentity, RejectReason> {
+    let (dev, ino) = get_file_identity_for_path(path).map_err(|error| match error.kind() {
         std::io::ErrorKind::PermissionDenied => RejectReason::Unsupported,
         _ => RejectReason::Unreadable,
     })?;
@@ -165,8 +165,8 @@ impl FileGrants {
         if classify(&pinned).is_some() {
             return Err(RejectReason::Unsupported);
         }
-        let identity = identity_of(&canonical)?;
-        if identity != identity_of(path)? {
+        let identity = get_identity(&canonical)?;
+        if identity != get_identity(path)? {
             return Err(RejectReason::Unsupported);
         }
         let id = new_grant_id()?;
@@ -229,7 +229,7 @@ impl FileGrants {
         if classify(&metadata).is_some() {
             return Err(RedeemError::Changed);
         }
-        let identity = identity_of(&grant.path).map_err(|_| RedeemError::Changed)?;
+        let identity = get_identity(&grant.path).map_err(|_| RedeemError::Changed)?;
         if identity.dev != grant.dev || identity.ino != grant.ino {
             return Err(RedeemError::Changed);
         }

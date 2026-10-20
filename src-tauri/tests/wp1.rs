@@ -358,3 +358,54 @@ fn windows_drop_grants_pin_native_identity_and_refuse_a_swapped_file() {
     );
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[cfg(windows)]
+#[test]
+fn windows_native_grants_reach_sidecar_bytes_and_refuse_a_post_redeem_swap() {
+    let root = std::env::temp_dir().join(format!("touri-drop-roundtrip-{}", std::process::id()));
+    std::fs::create_dir_all(&root).expect("fixture directory");
+    let file = root.join("fixture.bin");
+    std::fs::write(&file, vec![65u8; 15 * 1024 * 1024]).expect("fixture file");
+    let grants = Arc::new(touri_lib::file_grants::FileGrants::new());
+    let valid = grants.issue(std::slice::from_ref(&file)).granted[0]
+        .id
+        .clone();
+    let changed = grants.issue(std::slice::from_ref(&file)).granted[0]
+        .id
+        .clone();
+    let callbacks = HostBridgeCallbacks {
+        file_grants: grants,
+        secret_prompt: Arc::new(|_| Ok(None)),
+        notify: Arc::new(|_, _, _, _| Ok(())),
+    };
+    let mut bridge = HostBridge::start(
+        root.join("run/host.sock"),
+        "drop-roundtrip-fixture".to_string(),
+        KeychainStore::new("ai.touri.desktop.secret.drop-fixture"),
+        callbacks,
+    )
+    .expect("fixture bridge");
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("repository");
+
+    let result = std::process::Command::new("bun")
+        .current_dir(repository)
+        .arg("run")
+        .arg("sidecar/test/fixtures/windows-drop-roundtrip.ts")
+        .arg(bridge.endpoint())
+        .arg("drop-roundtrip-fixture")
+        .arg(valid)
+        .arg(changed)
+        .env("TOURI_DESKTOP_HELPER", env!("CARGO_BIN_EXE_touri"))
+        .output()
+        .expect("sidecar fixture");
+    bridge.shutdown();
+    std::fs::remove_dir_all(root).expect("remove fixture");
+
+    assert!(
+        result.status.success(),
+        "native grant/read fixture failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
