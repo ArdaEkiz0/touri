@@ -2668,9 +2668,19 @@ export const ptBR = {
   "Não foi possível iniciar a compactação. Aguarde a migração ou compactação em andamento e tente novamente.":
     "Não foi possível iniciar a compactação. Aguarde a migração ou compactação em andamento e tente novamente.",
   "O provedor não detalhou o pedido": "O provedor não detalhou o pedido",
+  "Aviso de bot pausado": "Aviso de bot pausado",
+  "{name} está pausado": "{name} está pausado",
+  "Bots pausados não respondem mensagens. Retome o bot para começar a conversa.":
+    "Bots pausados não respondem mensagens. Retome o bot para começar a conversa.",
+  "Retomar bot": "Retomar bot",
 } as const
 export type TranslationKey = keyof typeof ptBR
 const englishOverrides: Partial<Record<TranslationKey, string>> = {
+  "Aviso de bot pausado": "Paused bot notice",
+  "{name} está pausado": "{name} is paused",
+  "Bots pausados não respondem mensagens. Retome o bot para começar a conversa.":
+    "Paused bots don't answer messages. Resume it to start the conversation.",
+  "Retomar bot": "Resume bot",
   "O provedor não detalhou o pedido": "The provider gave no details for this request",
   "sobre você": "about you",
   "sobre o ambiente": "about the environment",

@@ -47,6 +47,7 @@ import { failureTimeLabel, runErrorFor } from "../runError"
 import { getSidebarThreadTitle } from "../sidebarThreadTitle"
 import { useHost } from "../useHost"
 import { RecoveryTasksContext } from "../useRecoveryTasks"
+import type { ThreadCreationStatus } from "../workspaceState"
 import { ActivityMark } from "./ActivityMark"
 import { ApprovalCard } from "./ApprovalCard"
 import { useAvatarBot, useMascotSnapshot, useMessageMascotState, useThreadBot } from "./AvatarRuntime"
@@ -78,8 +79,10 @@ import { usePhoneViewport } from "./usePhoneViewport"
 
 type ChatPanelProps = {
   composerKey?: string | undefined
-  threadCreation?: "pending" | "failed" | undefined
+  threadCreation?: ThreadCreationStatus | undefined
   onRetryCreateThread?: (() => void) | undefined
+  onResumeBot?: (() => Promise<void>) | undefined
+  autoFocusComposer?: boolean | undefined
   onRepeatTask?: ((draft: RoutineDraft) => void) | undefined
   group?: BotGroup | null
   groupMembers?: Bot[]
@@ -1062,6 +1065,8 @@ export const ChatPanel = ({
   composerKey,
   threadCreation,
   onRetryCreateThread,
+  onResumeBot,
+  autoFocusComposer = false,
   onRepeatTask,
   group = null,
   groupMembers = [],
@@ -1443,6 +1448,8 @@ export const ChatPanel = ({
         draftIdentity={composerKey ?? thread.id}
         threadCreation={threadCreation}
         onRetryCreateThread={onRetryCreateThread}
+        onResumeBot={onResumeBot}
+        autoFocus={autoFocusComposer}
         draftRef={draftComposerRef}
         notice={{
           bot,
